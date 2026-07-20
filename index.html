@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Papo Reto</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; font-family: -apple-system, system-ui, sans-serif; }
+</style>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+// ====== CONFIGURE AQUI depois de criar sua conta no Supabase (veja README.md) ======
+const SUPABASE_URL = 'COLE_AQUI_A_URL_DO_SEU_PROJETO_SUPABASE';
+const SUPABASE_ANON_KEY = 'COLE_AQUI_A_ANON_KEY_DO_SEU_PROJETO_SUPABASE';
+// =====================================================================================
+
+const C = {
+  bg: '#020617', card: '#0F172A', cardAlt: '#111B32', border: '#1E293B',
+  emerald: '#22C55E', emeraldDim: '#15803D', amber: '#F59E0B', text: '#F8FAFC', dim: '#94A3B8',
+};
+
+function todayKey() { return new Date().toISOString().slice(0, 10); }
+
+function logEvent(userId, userName, eventType, payload) {
+  if (SUPABASE_URL.startsWith('COLE_AQUI')) return; // ainda não configurado, ignora
+  fetch(`${SUPABASE_URL}/rest/v1/events`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ user_id: userId, user_name: userName, event_type: eventType, payload }),
+  }).catch(() => {});
+}
+
+async function askDona(history, text, imageBase64, imageMime) {
+  const res = await fetch('/api/dona', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ history, text, imageBase64, imageMime }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'erro');
+  return data.text;
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function Ring({ pct, size = 108 }) {
+  const stroke = 9, r = (size - stroke) / 2, c = 2 * Math.PI * r;
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={size/2} cy={size/2} r={r} stroke={C.border} strokeWidth={stroke} fill="none" />
+      <circle cx={size/2} cy={size/2} r={r} stroke={C.emerald} strokeWidth={stroke} fill="none"
+        strokeDasharray={c} strokeDashoffset={c - c * Math.min(1, pct)} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function load(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch (e) { return fallback; }
+}
+function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+function App() {
+  const [profile, setProfile] = useState(() => load('profile', null));
+  const [form, setForm] = useState({ name: '', weight: '', height: '', age: '', sex: 'F' });
+  const [tab, setTab] = useState('home');
+  const [daily, setDaily] = useState(() => load(`daily:${todayKey()}`, { water: 0, sleepHours: null }));
+  const [streak, setStreak] = useState(0);
+  const [messages, setMessages] = useState(() => load('chat_ui', [
+    { id: 1, from: 'dona', text: 'Bom dia. Dormiu quanto essa noite? E manda uma foto do seu prato ou da geladeira quando quiser, eu leio.' },
+  ]));
+  const geminiHistoryRef = useRef(load('chat_api', []));
+  const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState('DONA tá digitando...');
+  const [input, setInput] = useState('');
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const scrollRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!profile) return;
+    let s = load('streak', { count: 0, lastDate: null });
+    const today = todayKey();
+    if (s.lastDate !== today) {
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      s = { count: s.lastDate === yesterday ? s.count + 1 : 1, lastDate: today };
+      save('streak', s);
+    }
+    setStreak(s.count);
+  }, [profile]);
+
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy, tab]);
+
+  const completeOnboarding = () => {
+    if (!form.name.trim()) return;
+    const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const p = { id, name: form.name.trim(), weight: form.weight, height: form.height, age: form.age, sex: form.sex };
+    save('profile', p);
+    setProfile(p);
+    logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex });
+  };
+
+  const updateDaily = (patch) => {
+    const next = { ...daily, ...patch };
+    setDaily(next);
+    save(`daily:${todayKey()}`, next);
+    if (patch.water !== undefined) logEvent(profile.id, profile.name, 'agua_registrada', { water: next.water });
+  };
+
+  const runDona = async (userMsgForUi, apiText, imageBase64, imageMime) => {
+    const nextMsgs = [...messages, userMsgForUi];
+    setMessages(nextMsgs); save('chat_ui', nextMsgs);
+    setBusy(true);
+    try {
+      const reply = await askDona(geminiHistoryRef.current, apiText, imageBase64, imageMime);
+      const userParts = imageBase64
+        ? [{ inline_data: { mime_type: imageMime, data: imageBase64 } }, { text: apiText }]
+        : [{ text: apiText }];
+      geminiHistoryRef.current = [...geminiHistoryRef.current, { role: 'user', parts: userParts }, { role: 'model', parts: [{ text: reply }] }];
+      save('chat_api', geminiHistoryRef.current);
+      const finalMsgs = [...nextMsgs, { id: Date.now() + 1, from: 'dona', text: reply }];
+      setMessages(finalMsgs); save('chat_ui', finalMsgs);
+      logEvent(profile.id, profile.name, imageBase64 ? 'foto_analisada' : 'mensagem_enviada', {});
+    } catch (e) {
+      const finalMsgs = [...nextMsgs, { id: Date.now() + 1, from: 'dona', text: 'Não consegui te responder agora, tenta de novo em instantes.' }];
+      setMessages(finalMsgs); save('chat_ui', finalMsgs);
+    } finally { setBusy(false); setBusyLabel('DONA tá digitando...'); }
+  };
+
+  const send = () => {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+    runDona({ id: Date.now(), from: 'user', text }, text);
+  };
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || busy) return;
+    const previewUrl = URL.createObjectURL(file);
+    setBusyLabel('DONA tá analisando a foto...');
+    const base64 = await fileToBase64(file);
+    const caption = 'O que você vê nessa foto? Quantas calorias, mais ou menos, e tem algum ponto de atenção?';
+    runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, base64, file.type || 'image/jpeg');
+  };
+
+  const Phone = ({ children }) => (
+    <div style={{ background: '#000', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 0' }}>
+      <div style={{ width: 380, maxWidth: '100vw', height: 780, maxHeight: '100vh', background: C.bg, borderRadius: 40, border: '10px solid #111', boxShadow: '0 30px 80px rgba(0,0,0,0.6)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {children}
+      </div>
+    </div>
+  );
+
+  if (!profile) {
+    return (
+      <Phone>
+        <div style={{ overflowY: 'auto', padding: '32px 24px' }}>
+          <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald }}>PAPO RETO</p>
+          <h1 style={{ fontSize: 24, fontWeight: 900, color: C.text, margin: '4px 0' }}>Chega de enrolação.</h1>
+          <p style={{ fontSize: 12, color: C.dim, marginBottom: 24 }}>Cria seu perfil pra DONA começar a te acompanhar.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <input placeholder="Seu nome" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={inputStyle} />
+            <div style={{ display: 'flex', gap: 12 }}>
+              <input placeholder="Peso (kg)" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} style={inputStyle} />
+              <input placeholder="Altura (cm)" value={form.height} onChange={e => setForm({...form, height: e.target.value})} style={inputStyle} />
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <input placeholder="Idade" value={form.age} onChange={e => setForm({...form, age: e.target.value})} style={inputStyle} />
+              <select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}>
+                <option value="F">Feminino</option>
+                <option value="M">Masculino</option>
+              </select>
+            </div>
+            <button onClick={completeOnboarding} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>Começar</button>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
+
+  return (
+    <Phone>
+      <div style={{ padding: '16px 24px 8px', color: C.text, fontSize: 12, fontWeight: 600 }}>9:41</div>
+      <div style={{ flex: 1, overflow: 'hidden' }}>
+        {tab === 'home' && (
+          <div style={{ height: '100%', overflowY: 'auto', padding: '0 20px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '8px 0 20px' }}>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>PAPO RETO</p>
+                <h1 style={{ fontSize: 22, fontWeight: 900, color: C.text, margin: 0 }}>Bora, {profile.name.split(' ')[0]}.</h1>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: 22, fontWeight: 900, color: C.text, margin: 0 }}>{streak}</p>
+                <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, margin: 0 }}>dias seguidos</p>
+              </div>
+            </div>
+
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                <div style={{ position: 'relative', width: 108, height: 108 }}>
+                  <Ring pct={0.55} />
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: 20, fontWeight: 900, color: C.text }}>—</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: C.dim }}>kcal hoje</span>
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: C.text, margin: 0 }}>Manda fotos das refeições</p>
+                  <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>A DONA calcula pra você no chat, foto a foto.</p>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
+                <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{daily.water}/8</p>
+                <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 8 }}>copos d'água</p>
+                <button onClick={() => updateDaily({ water: Math.min(8, daily.water + 1) })} style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '6px', fontSize: 11, fontWeight: 700 }}>+ adicionar</button>
+              </div>
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
+                <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{daily.sleepHours ?? '—'}h</p>
+                <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 8 }}>sono essa noite</p>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {[5,7,9].map(h => <button key={h} onClick={() => updateDaily({ sleepHours: h })} style={{ flex: 1, background: C.cardAlt, color: C.dim, border: 'none', borderRadius: 6, padding: '4px', fontSize: 10, fontWeight: 700 }}>{h}h</button>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'chat' && (
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ width: 36, height: 36, borderRadius: 18, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}>D</div>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>DONA</p>
+                <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>mentora do Papo Reto</p>
+              </div>
+            </div>
+            <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {messages.map(m => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ maxWidth: '80%', background: m.from === 'user' ? C.emeraldDim : C.card, color: C.text, border: m.from === 'dona' ? `1px solid ${C.border}` : 'none', borderRadius: 16, padding: '10px 16px', fontSize: 14 }}>
+                    {m.image && <img src={m.image} style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, marginBottom: 8, objectFit: 'cover' }} />}
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+              {busy && <div style={{ fontSize: 11, color: C.dim }}>{busyLabel}</div>}
+            </div>
+            <div style={{ padding: 12, display: 'flex', gap: 8, borderTop: `1px solid ${C.border}` }}>
+              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
+              <button onClick={() => fileInputRef.current.click()} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, width: 40, height: 40 }}>📷</button>
+              <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Manda o papo..." disabled={busy} style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, padding: '10px 16px', color: C.text, fontSize: 14 }} />
+              <button onClick={send} disabled={busy} style={{ background: C.emerald, border: 'none', borderRadius: 999, width: 40, height: 40, opacity: busy ? 0.5 : 1 }}>➤</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', borderTop: `1px solid ${C.border}` }}>
+        {[['home','Painel'], ['chat','DONA']].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{ flex: 1, background: 'none', border: 'none', padding: '12px 0', color: tab === id ? C.emerald : C.dim, fontSize: 10, fontWeight: 700 }}>{label}</button>
+        ))}
+      </div>
+    </Phone>
+  );
+}
+
+const inputStyle = { background: '#0F172A', border: '1px solid #1E293B', borderRadius: 12, padding: '12px 16px', color: '#F8FAFC', fontSize: 14, flex: 1, outline: 'none' };
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

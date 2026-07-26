@@ -1,6 +1,5 @@
-// Vercel serverless function — roda no servidor, nunca no navegador.
-// A chave GEMINI_API_KEY fica só aqui, configurada como variável de ambiente no Vercel.
-// Ninguém que usa o site consegue ver essa chave.
+// Netlify Function — roda no servidor, nunca no navegador.
+// A chave GEMINI_API_KEY fica só aqui, configurada como variável de ambiente no Netlify.
 
 const SYSTEM_PROMPT = `Você é a DONA, a inteligência artificial e mentora de resultados do aplicativo "Papo Reto". Seu tom é direto, transparente, empático e focado na realidade prática do brasileiro comum. Você não aceita desculpas, mas respeita a individualidade de cada um.
 
@@ -10,21 +9,20 @@ Regras invioláveis:
 - Quando o usuário mandar foto de comida, prato ou ingredientes, identifique o que está vendo, estime as calorias aproximadas de forma transparente (explique rapidamente a lógica da conta) e aponte pontos de atenção (excesso de óleo, frituras, molhos calóricos), sugerindo alternativas mais leves quando fizer sentido (ex: preparo em air fryer).
 - Seja sempre breve, direta, sem rodeios, mas com empatia genuína. Nunca cite nomes de terceiros. Fale em português do Brasil.`;
 
-// Se esse modelo parar de responder no futuro, veja o nome atualizado em ai.google.dev
-const MODEL = 'gemini-2.0-flash';
+const MODEL = 'gemini-3.6-flash'; // atualizado em jul/2026 - o 2.0-flash foi desativado pelo Google
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' });
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Método não permitido' }) };
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY não configurada no servidor' });
+    return { statusCode: 500, body: JSON.stringify({ error: 'GEMINI_API_KEY não configurada no servidor' }) };
   }
 
   try {
-    const { history = [], text, imageBase64, imageMime } = req.body || {};
+    const { history = [], text, imageBase64, imageMime } = JSON.parse(event.body || '{}');
 
     const parts = [];
     if (imageBase64) {
@@ -47,15 +45,15 @@ export default async function handler(req, res) {
     const data = await geminiRes.json();
 
     if (!geminiRes.ok) {
-      return res.status(geminiRes.status).json({ error: data.error?.message || 'Erro na API do Gemini' });
+      return { statusCode: geminiRes.status, body: JSON.stringify({ error: data.error?.message || 'Erro na API do Gemini' }) };
     }
 
     const replyText =
       data.candidates?.[0]?.content?.parts?.map((p) => p.text).filter(Boolean).join('\n') ||
       'Não consegui gerar uma resposta agora.';
 
-    return res.status(200).json({ text: replyText });
+    return { statusCode: 200, body: JSON.stringify({ text: replyText }) };
   } catch (err) {
-    return res.status(500).json({ error: 'Erro interno: ' + err.message });
+    return { statusCode: 500, body: JSON.stringify({ error: 'Erro interno: ' + err.message }) };
   }
-}
+};

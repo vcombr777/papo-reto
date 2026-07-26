@@ -110,27 +110,32 @@ function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
     video.playsInline = true;
     video.setAttribute('playsinline', '');
     video.setAttribute('webkit-playsinline', '');
-    // alguns navegadores (principalmente iPhone) só decodificam quadros de um vídeo
-    // que está de fato no DOM — por isso anexamos fora da tela, em vez de display:none.
+    // Fica dentro da área visível (não em -9999px) pra evitar que o iOS pause a
+    // decodificação de vídeos que ele considera "fora de tela". Invisível por opacidade, não por posição.
     video.style.position = 'fixed';
-    video.style.top = '-9999px';
-    video.style.width = '1px';
-    video.style.height = '1px';
+    video.style.top = '0';
+    video.style.left = '0';
+    video.style.width = '2px';
+    video.style.height = '2px';
+    video.style.opacity = '0.01';
+    video.style.pointerEvents = 'none';
     document.body.appendChild(video);
 
     const url = URL.createObjectURL(file);
     video.src = url;
 
-    const frames = [];
-    let index = 0;
-    let finished = false;
-
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
+    const frames = [];
+    let finished = false;
+    let targets = [];
+    let targetIdx = 0;
 
     const cleanup = () => {
+      if (finished) return;
       finished = true;
       clearTimeout(timeoutId);
+      try { video.pause(); } catch (e) {}
       URL.revokeObjectURL(url);
       if (video.parentNode) video.parentNode.removeChild(video);
     };
@@ -138,40 +143,64 @@ function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
     const timeoutId = setTimeout(() => {
       if (finished) return;
       cleanup();
-      if (frames.length > 0) {
-        resolve(frames); // aproveita o que já conseguiu capturar
-      } else {
-        reject(new Error('Tempo esgotado lendo o vídeo'));
-      }
+      if (frames.length > 0) resolve(frames);
+      else reject(new Error('Tempo esgotado lendo o vídeo'));
     }, 20000);
 
-    const captureCurrent = () => {
-      if (finished) return;
+    const grabFrame = () => {
       try {
         const scale = Math.min(1, maxWidth / (video.videoWidth || maxWidth));
-        canvas.width = (video.videoWidth || maxWidth) * scale;
-        canvas.height = (video.videoHeight || maxWidth) * scale;
+        canvas.width = Math.max(1, Math.round((video.videoWidth || maxWidth) * scale));
+        canvas.height = Math.max(1, Math.round((video.videoHeight || maxWidth) * scale));
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         frames.push(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
       } catch (e) {
-        // se um quadro específico falhar, segue pros próximos em vez de travar tudo
-      }
-      index += 1;
-      if (index < frameCount) {
-        seekNext();
-      } else {
-        cleanup();
-        resolve(frames);
+        // um quadro falhar não deve travar os outros
       }
     };
 
-    const seekNext = () => {
-      const t = (video.duration * (index + 1)) / (frameCount + 1);
-      video.currentTime = t;
+    const finishUp = () => {
+      cleanup();
+      resolve(frames);
     };
 
-    video.onloadedmetadata = () => seekNext();
-    video.onseeked = () => captureCurrent();
+    // Método principal: reproduz o vídeo de verdade (mudo) e captura quadros
+    // conforme ele passa pelos tempos-alvo — é o jeito recomendado pra funcionar no iOS.
+    const runByPlayback = () => {
+      const onFrame = (now, metadata) => {
+        if (finished) return;
+        const t = metadata.mediaTime;
+        if (targetIdx < targets.length && t >= targets[targetIdx]) {
+          grabFrame();
+          targetIdx += 1;
+        }
+        if (targetIdx >= targets.length) { finishUp(); return; }
+        video.requestVideoFrameCallback(onFrame);
+      };
+      video.requestVideoFrameCallback(onFrame);
+      video.play().catch(() => runBySeek());
+    };
+
+    // Método reserva: pula ponto a ponto (usado se o navegador não suportar o método acima)
+    const runBySeek = () => {
+      let seekIndex = 0;
+      const seekNext = () => { if (!finished) video.currentTime = targets[seekIndex]; };
+      video.onseeked = () => {
+        if (finished) return;
+        grabFrame();
+        seekIndex += 1;
+        if (seekIndex < targets.length) seekNext();
+        else finishUp();
+      };
+      seekNext();
+    };
+
+    video.onloadedmetadata = () => {
+      const dur = video.duration || 1;
+      targets = Array.from({ length: frameCount }, (_, i) => (dur * (i + 1)) / (frameCount + 1));
+      if (typeof video.requestVideoFrameCallback === 'function') runByPlayback();
+      else runBySeek();
+    };
     video.onerror = () => { cleanup(); reject(new Error('Não consegui ler esse vídeo')); };
   });
 }
@@ -299,6 +328,7 @@ function App() {
   const [expandedExercise, setExpandedExercise] = useState(null);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
+  const execPhotosRef = useRef(null);
   const videoInputRef = useRef(null);
   const googleBtnRef = useRef(null);
   const [googleProfile, setGoogleProfile] = useState(null);
@@ -430,6 +460,26 @@ function App() {
     runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, [{ data: base64, mimeType: file.type || 'image/jpeg' }]);
   };
 
+  const handleExecPhotos = async (e) => {
+    const files = Array.from(e.target.files || []).slice(0, 6);
+    e.target.value = '';
+    if (!files.length || busy) return;
+    setBusyLabel('DONA tá analisando as fotos da execução...');
+    setBusy(true);
+    try {
+      const base64s = await Promise.all(files.map(f => fileToBase64(f)));
+      const previewUrl = URL.createObjectURL(files[0]);
+      const caption = 'Analisa a execução desse exercício nessas fotos (momentos diferentes do movimento) e me dá dicas de melhoria — sempre como sugestão, não como prescrição.';
+      const images = base64s.map((b64, i) => ({ data: b64, mimeType: files[i].type || 'image/jpeg' }));
+      setBusy(false);
+      runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, images);
+    } catch (err) {
+      setBusy(false);
+      const finalMsgs = [...messages, { id: Date.now(), from: 'dona', text: 'Não consegui ler essas fotos, tenta de novo.' }];
+      setMessages(finalMsgs); save('chat_ui', finalMsgs);
+    }
+  };
+
   const handleVideo = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
@@ -445,7 +495,7 @@ function App() {
       runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, images);
     } catch (err) {
       setBusy(false);
-      const finalMsgs = [...messages, { id: Date.now(), from: 'dona', text: 'Não consegui ler esse vídeo. Tenta um arquivo mais curto ou em outro formato (mp4 costuma funcionar melhor).' }];
+      const finalMsgs = [...messages, { id: Date.now(), from: 'dona', text: 'Esse formato de vídeo travou aqui (é uma limitação conhecida do Safari/iPhone). Manda 3-5 fotos da execução em vez do vídeo — funciona melhor.' }];
       setMessages(finalMsgs); save('chat_ui', finalMsgs);
     }
   };
@@ -669,8 +719,10 @@ function App() {
             </div>
             <div style={{ padding: 12, display: 'flex', gap: 8, borderTop: `1px solid ${C.border}` }}>
               <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
+              <input ref={execPhotosRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleExecPhotos} />
               <input ref={videoInputRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={handleVideo} />
               <button onClick={() => fileInputRef.current.click()} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, width: 40, height: 40 }}>📷</button>
+              <button onClick={() => execPhotosRef.current.click()} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, width: 40, height: 40 }}>🖼️</button>
               <button onClick={() => videoInputRef.current.click()} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, width: 40, height: 40 }}>🎥</button>
               <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Manda o papo..." disabled={busy} style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, padding: '10px 16px', color: C.text, fontSize: 14 }} />
               <button onClick={send} disabled={busy} style={{ background: C.emerald, border: 'none', borderRadius: 999, width: 40, height: 40, opacity: busy ? 0.5 : 1 }}>➤</button>

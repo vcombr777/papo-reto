@@ -1,0 +1,4 @@
+[[redirects]]
+  from = "/api/dona"
+  to = "/.netlify/functions/dona"
+  status = 200

@@ -4,6 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Papo Reto</title>
+<link rel="manifest" href="/manifest.json" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Papo Reto" />
+<meta name="theme-color" content="#020617" />
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; background: #000; font-family: -apple-system, system-ui, sans-serif; }
@@ -11,6 +17,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <div id="root"></div>
@@ -21,6 +28,10 @@ const { useState, useEffect, useRef } = React;
 // ====== CONFIGURE AQUI depois de criar sua conta no Supabase (veja README.md) ======
 const SUPABASE_URL = 'COLE_AQUI_A_URL_DO_SEU_PROJETO_SUPABASE';
 const SUPABASE_ANON_KEY = 'COLE_AQUI_A_ANON_KEY_DO_SEU_PROJETO_SUPABASE';
+// =====================================================================================
+
+// ====== CONFIGURE AQUI depois de criar seu Google Client ID (veja README.md) ======
+const GOOGLE_CLIENT_ID = 'COLE_AQUI_SEU_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 // =====================================================================================
 
 const C = {
@@ -95,6 +106,34 @@ function App() {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
+  const googleBtnRef = useRef(null);
+  const [googleProfile, setGoogleProfile] = useState(null);
+  const googleReady = !GOOGLE_CLIENT_ID.startsWith('COLE_AQUI');
+
+  useEffect(() => {
+    if (profile || !googleReady) return;
+    let cancelled = false;
+    const handleGoogleResponse = (resp) => {
+      try {
+        const payload = JSON.parse(atob(resp.credential.split('.')[1]));
+        setGoogleProfile({ sub: payload.sub, name: payload.name, email: payload.email, picture: payload.picture });
+        setForm((f) => ({ ...f, name: payload.name }));
+      } catch (e) {}
+    };
+    const tryInit = () => {
+      if (cancelled) return;
+      if (window.google && window.google.accounts) {
+        window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleResponse });
+        if (googleBtnRef.current) {
+          window.google.accounts.id.renderButton(googleBtnRef.current, { theme: 'filled_black', size: 'large', width: 300 });
+        }
+      } else {
+        setTimeout(tryInit, 300);
+      }
+    };
+    tryInit();
+    return () => { cancelled = true; };
+  }, [profile, googleProfile]);
 
   useEffect(() => {
     if (!profile) return;
@@ -112,11 +151,15 @@ function App() {
 
   const completeOnboarding = () => {
     if (!form.name.trim()) return;
-    const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-    const p = { id, name: form.name.trim(), weight: form.weight, height: form.height, age: form.age, sex: form.sex };
+    const id = googleProfile ? googleProfile.sub : (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+    const p = {
+      id, name: form.name.trim(), weight: form.weight, height: form.height, age: form.age, sex: form.sex,
+      email: googleProfile ? googleProfile.email : undefined,
+      picture: googleProfile ? googleProfile.picture : undefined,
+    };
     save('profile', p);
     setProfile(p);
-    logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex });
+    logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, viaGoogle: !!googleProfile });
   };
 
   const updateDaily = (patch) => {
@@ -179,8 +222,28 @@ function App() {
           <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald }}>PAPO RETO</p>
           <h1 style={{ fontSize: 24, fontWeight: 900, color: C.text, margin: '4px 0' }}>Chega de enrolação.</h1>
           <p style={{ fontSize: 12, color: C.dim, marginBottom: 24 }}>Cria seu perfil pra DONA começar a te acompanhar.</p>
+
+          {googleReady && !googleProfile && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '20px 0' }}>
+              <div ref={googleBtnRef}></div>
+              <p style={{ fontSize: 10, color: C.dim }}>Entre com o Google pra criar seu perfil</p>
+            </div>
+          )}
+
+          {(!googleReady || googleProfile) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <input placeholder="Seu nome" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={inputStyle} />
+            {googleProfile && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 10 }}>
+                <img src={googleProfile.picture} style={{ width: 32, height: 32, borderRadius: 16 }} />
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>{googleProfile.name}</p>
+                  <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>{googleProfile.email}</p>
+                </div>
+              </div>
+            )}
+            {!googleProfile && (
+              <input placeholder="Seu nome" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={inputStyle} />
+            )}
             <div style={{ display: 'flex', gap: 12 }}>
               <input placeholder="Peso (kg)" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} style={inputStyle} />
               <input placeholder="Altura (cm)" value={form.height} onChange={e => setForm({...form, height: e.target.value})} style={inputStyle} />
@@ -194,6 +257,7 @@ function App() {
             </div>
             <button onClick={completeOnboarding} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>Começar</button>
           </div>
+          )}
         </div>
       </Phone>
     );
@@ -298,6 +362,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
   const s = document.createElement('script');
   s.textContent = output;
   document.body.appendChild(s);
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  }
 </script>
 </body>
 </html>

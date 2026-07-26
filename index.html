@@ -318,6 +318,24 @@ function App() {
     runDona({ id: Date.now(), from: 'user', text }, text);
   };
 
+  const quickAsk = (text) => {
+    if (busy) return;
+    setTab('chat');
+    runDona({ id: Date.now(), from: 'user', text }, text);
+  };
+
+  const askCardapio = () => {
+    const cal = computeCalorieBreakdown(profile);
+    const goalLabel = cal ? cal.goalLabel.toLowerCase() : 'minha meta';
+    quickAsk(`Me dá dicas de cardápio pra quem quer ${goalLabel}${cal ? `, considerando uma meta de ${cal.target} kcal por dia` : ''}.`);
+  };
+
+  const askTreino = () => {
+    const cal = computeCalorieBreakdown(profile);
+    const goalLabel = cal ? cal.goalLabel.toLowerCase() : 'meu objetivo';
+    quickAsk(`Me dá dicas de treino pra quem quer ${goalLabel}. Que tipo de abordagem faz mais sentido?`);
+  };
+
   const handlePhoto = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
@@ -512,6 +530,17 @@ function App() {
                 </p>
               </div>
             </button>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+              <button onClick={askCardapio} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, textAlign: 'left', opacity: busy ? 0.5 : 1 }}>
+                <p style={{ fontSize: 18, margin: '0 0 6px' }}>🍽️</p>
+                <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>Dicas de cardápio</p>
+              </button>
+              <button onClick={askTreino} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, textAlign: 'left', opacity: busy ? 0.5 : 1 }}>
+                <p style={{ fontSize: 18, margin: '0 0 6px' }}>🏋️</p>
+                <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>Dicas de treino</p>
+              </button>
+            </div>
           </div>
         )}
 

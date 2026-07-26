@@ -12,7 +12,26 @@
 <meta name="theme-color" content="#020617" />
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; background: #000; font-family: -apple-system, system-ui, sans-serif; }
+  html, body { margin: 0; height: 100%; background: #000; font-family: -apple-system, system-ui, sans-serif; }
+  .app-outer { background: #000; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
+  .phone-shell {
+    width: 100%;
+    height: 100dvh;
+    background: #020617;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  @media (min-width: 480px) {
+    .app-outer { padding: 24px 0; }
+    .phone-shell {
+      width: 380px;
+      height: 780px;
+      border-radius: 40px;
+      border: 10px solid #111;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    }
+  }
 </style>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -31,7 +50,7 @@ const SUPABASE_ANON_KEY = 'COLE_AQUI_A_ANON_KEY_DO_SEU_PROJETO_SUPABASE';
 // =====================================================================================
 
 // ====== CONFIGURE AQUI depois de criar seu Google Client ID (veja README.md) ======
-const GOOGLE_CLIENT_ID = '977709568814-i30j2suj885trhbh2g813mnlg3qc60r6.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = 'COLE_AQUI_SEU_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 // =====================================================================================
 
 const C = {
@@ -74,6 +93,53 @@ function fileToBase64(file) {
   });
 }
 
+const ACTIVITY_FACTORS = {
+  sedentario: { label: 'Sedentário (pouco ou nenhum exercício)', factor: 1.2 },
+  leve: { label: 'Leve (1 a 3x por semana)', factor: 1.375 },
+  moderado: { label: 'Moderado (3 a 5x por semana)', factor: 1.55 },
+  intenso: { label: 'Intenso (6 a 7x por semana)', factor: 1.725 },
+};
+
+const GOAL_INFO = {
+  emagrecer: { label: 'Queimar gordura', adjustPct: -0.20 },
+  manter: { label: 'Manter o peso', adjustPct: 0 },
+  ganhar: { label: 'Ganhar massa', adjustPct: 0.15 },
+};
+
+// Fórmula de Mifflin-St Jeor (padrão usado por calculadoras de calorias) + fator de atividade (Harris-Benedict)
+function computeCalorieBreakdown(profile) {
+  const weight = parseFloat(profile.weight);
+  const height = parseFloat(profile.height);
+  const age = parseFloat(profile.age);
+  if (!weight || !height || !age) return null;
+
+  const bmr = profile.sex === 'M'
+    ? 10 * weight + 6.25 * height - 5 * age + 5
+    : 10 * weight + 6.25 * height - 5 * age - 161;
+
+  const activity = ACTIVITY_FACTORS[profile.activityLevel] || ACTIVITY_FACTORS.leve;
+  const tdee = bmr * activity.factor;
+
+  const goal = GOAL_INFO[profile.goal] || GOAL_INFO.manter;
+  const target = tdee * (1 + goal.adjustPct);
+
+  return {
+    bmr: Math.round(bmr),
+    activityLabel: activity.label,
+    tdee: Math.round(tdee),
+    goalLabel: goal.label,
+    adjustKcal: Math.round(tdee * goal.adjustPct),
+    target: Math.round(target),
+  };
+}
+
+// Referência clássica de hidratação: ~35ml de água por kg de peso corporal
+function computeWaterGoalMl(weight) {
+  const w = parseFloat(weight);
+  if (!w) return 2000;
+  return Math.round((w * 35) / 50) * 50; // arredonda pra múltiplo de 50ml
+}
+
 function Ring({ pct, size = 108 }) {
   const stroke = 9, r = (size - stroke) / 2, c = 2 * Math.PI * r;
   return (
@@ -90,11 +156,22 @@ function load(key, fallback) {
 }
 function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 
+function Phone({ children }) {
+  return (
+    <div className="app-outer">
+      <div className="phone-shell">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [profile, setProfile] = useState(() => load('profile', null));
-  const [form, setForm] = useState({ name: '', weight: '', height: '', age: '', sex: 'F' });
+  const [form, setForm] = useState({ name: '', weight: '', height: '', age: '', sex: 'F', goal: 'emagrecer', activityLevel: 'leve' });
   const [tab, setTab] = useState('home');
-  const [daily, setDaily] = useState(() => load(`daily:${todayKey()}`, { water: 0, sleepHours: null }));
+  const [daily, setDaily] = useState(() => load(`daily:${todayKey()}`, { waterMl: 0, sleepHours: null }));
+  const [containerMl, setContainerMl] = useState(() => load('container_ml', 200));
   const [streak, setStreak] = useState(0);
   const [messages, setMessages] = useState(() => load('chat_ui', [
     { id: 1, from: 'dona', text: 'Bom dia. Dormiu quanto essa noite? E manda uma foto do seu prato ou da geladeira quando quiser, eu leio.' },
@@ -149,24 +226,36 @@ function App() {
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy, tab]);
 
+  const resetProfile = () => {
+    if (!window.confirm('Apagar seu perfil e começar o cadastro de novo?')) return;
+    ['profile', 'chat_ui', 'chat_api', 'streak', 'container_ml'].forEach(k => localStorage.removeItem(k));
+    window.location.reload();
+  };
+
   const completeOnboarding = () => {
     if (!form.name.trim()) return;
     const id = googleProfile ? googleProfile.sub : (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
     const p = {
       id, name: form.name.trim(), weight: form.weight, height: form.height, age: form.age, sex: form.sex,
+      goal: form.goal, activityLevel: form.activityLevel,
       email: googleProfile ? googleProfile.email : undefined,
       picture: googleProfile ? googleProfile.picture : undefined,
     };
     save('profile', p);
     setProfile(p);
-    logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, viaGoogle: !!googleProfile });
+    logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, goal: p.goal, activityLevel: p.activityLevel, viaGoogle: !!googleProfile });
   };
 
   const updateDaily = (patch) => {
     const next = { ...daily, ...patch };
     setDaily(next);
     save(`daily:${todayKey()}`, next);
-    if (patch.water !== undefined) logEvent(profile.id, profile.name, 'agua_registrada', { water: next.water });
+    if (patch.waterMl !== undefined) logEvent(profile.id, profile.name, 'agua_registrada', { waterMl: next.waterMl });
+  };
+
+  const setContainerSize = (ml) => {
+    setContainerMl(ml);
+    save('container_ml', ml);
   };
 
   const runDona = async (userMsgForUi, apiText, imageBase64, imageMime) => {
@@ -207,18 +296,10 @@ function App() {
     runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, base64, file.type || 'image/jpeg');
   };
 
-  const Phone = ({ children }) => (
-    <div style={{ background: '#000', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 0' }}>
-      <div style={{ width: 380, maxWidth: '100vw', height: 780, maxHeight: '100vh', background: C.bg, borderRadius: 40, border: '10px solid #111', boxShadow: '0 30px 80px rgba(0,0,0,0.6)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {children}
-      </div>
-    </div>
-  );
-
   if (!profile) {
     return (
       <Phone>
-        <div style={{ overflowY: 'auto', padding: '32px 24px' }}>
+        <div style={{ overflowY: 'auto', padding: '32px 24px', flex: 1, minHeight: 0 }}>
           <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald }}>PAPO RETO</p>
           <h1 style={{ fontSize: 24, fontWeight: 900, color: C.text, margin: '4px 0' }}>Chega de enrolação.</h1>
           <p style={{ fontSize: 12, color: C.dim, marginBottom: 24 }}>Cria seu perfil pra DONA começar a te acompanhar.</p>
@@ -255,6 +336,17 @@ function App() {
                 <option value="M">Masculino</option>
               </select>
             </div>
+            <select value={form.goal} onChange={e => setForm({...form, goal: e.target.value})} style={inputStyle}>
+              <option value="emagrecer">Meu objetivo: queimar gordura</option>
+              <option value="manter">Meu objetivo: manter o peso</option>
+              <option value="ganhar">Meu objetivo: ganhar massa</option>
+            </select>
+            <select value={form.activityLevel} onChange={e => setForm({...form, activityLevel: e.target.value})} style={inputStyle}>
+              <option value="sedentario">Atividade: sedentário</option>
+              <option value="leve">Atividade: leve (1-3x/semana)</option>
+              <option value="moderado">Atividade: moderado (3-5x/semana)</option>
+              <option value="intenso">Atividade: intenso (6-7x/semana)</option>
+            </select>
             <button onClick={completeOnboarding} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>Começar</button>
           </div>
           )}
@@ -265,7 +357,6 @@ function App() {
 
   return (
     <Phone>
-      <div style={{ padding: '16px 24px 8px', color: C.text, fontSize: 12, fontWeight: 600 }}>9:41</div>
       <div style={{ flex: 1, overflow: 'hidden' }}>
         {tab === 'home' && (
           <div style={{ height: '100%', overflowY: 'auto', padding: '0 20px 16px' }}>
@@ -277,39 +368,85 @@ function App() {
               <div style={{ textAlign: 'right' }}>
                 <p style={{ fontSize: 22, fontWeight: 900, color: C.text, margin: 0 }}>{streak}</p>
                 <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, margin: 0 }}>dias seguidos</p>
+                <button onClick={resetProfile} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 9, marginTop: 6, padding: 0, textDecoration: 'underline' }}>trocar perfil</button>
               </div>
             </div>
 
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                <div style={{ position: 'relative', width: 108, height: 108 }}>
-                  <Ring pct={0.55} />
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: 20, fontWeight: 900, color: C.text }}>—</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: C.dim }}>kcal hoje</span>
+            {(() => {
+              const cal = computeCalorieBreakdown(profile);
+              const waterGoalMl = computeWaterGoalMl(profile.weight);
+              const waterMl = daily.waterMl || 0;
+              const waterL = (waterMl / 1000).toFixed(1);
+              const goalL = (waterGoalMl / 1000).toFixed(1);
+              const waterPct = Math.min(1, waterMl / waterGoalMl);
+              return (
+                <React.Fragment>
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                      <div style={{ position: 'relative', width: 108, height: 108 }}>
+                        <Ring pct={cal ? 0.5 : 0} />
+                        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                          <span style={{ fontSize: 18, fontWeight: 900, color: C.text }}>{cal ? cal.target : '—'}</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: C.dim }}>kcal meta</span>
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: C.text, margin: 0 }}>{cal ? cal.goalLabel : 'Complete seu perfil'}</p>
+                        <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>Manda fotos das refeições, a DONA desconta da meta.</p>
+                        {cal && (
+                          <button onClick={() => setShowBreakdown(s => !s)} style={{ background: 'none', border: 'none', color: C.emerald, fontSize: 11, fontWeight: 700, padding: 0, marginTop: 6 }}>
+                            {showBreakdown ? 'Esconder a conta ▲' : 'Ver a conta ▼'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {cal && showBreakdown && (
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}`, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div style={{ background: C.cardAlt, borderRadius: 8, padding: 8 }}>
+                          <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>TMB (basal)</p>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{cal.bmr} kcal</p>
+                        </div>
+                        <div style={{ background: C.cardAlt, borderRadius: 8, padding: 8 }}>
+                          <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>+ atividade ({cal.activityLabel.split(' ')[0]})</p>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{cal.tdee} kcal</p>
+                        </div>
+                        <div style={{ background: C.cardAlt, borderRadius: 8, padding: 8, gridColumn: '1 / -1' }}>
+                          <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>Ajuste pro objetivo ({cal.goalLabel})</p>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{cal.adjustKcal >= 0 ? '+' : ''}{cal.adjustKcal} kcal → meta final {cal.target} kcal</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: C.text, margin: 0 }}>Manda fotos das refeições</p>
-                  <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>A DONA calcula pra você no chat, foto a foto.</p>
-                </div>
-              </div>
-            </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
-                <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{daily.water}/8</p>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 8 }}>copos d'água</p>
-                <button onClick={() => updateDaily({ water: Math.min(8, daily.water + 1) })} style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '6px', fontSize: 11, fontWeight: 700 }}>+ adicionar</button>
-              </div>
-              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
-                <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{daily.sleepHours ?? '—'}h</p>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 8 }}>sono essa noite</p>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {[5,7,9].map(h => <button key={h} onClick={() => updateDaily({ sleepHours: h })} style={{ flex: 1, background: C.cardAlt, color: C.dim, border: 'none', borderRadius: 6, padding: '4px', fontSize: 10, fontWeight: 700 }}>{h}h</button>)}
-                </div>
-              </div>
-            </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
+                      <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{waterL}L / {goalL}L</p>
+                      <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 6 }}>água hoje</p>
+                      <div style={{ height: 4, borderRadius: 2, background: C.cardAlt, marginBottom: 8, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${waterPct * 100}%`, background: C.emerald }} />
+                      </div>
+                      <button onClick={() => updateDaily({ waterMl: waterMl + containerMl })} style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '6px', fontSize: 11, fontWeight: 700, marginBottom: 6 }}>
+                        + {containerMl}ml
+                      </button>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {[200, 500, 750].map(ml => (
+                          <button key={ml} onClick={() => setContainerSize(ml)} style={{ flex: 1, background: containerMl === ml ? C.emerald : C.cardAlt, color: containerMl === ml ? '#022c1a' : C.dim, border: 'none', borderRadius: 6, padding: '4px', fontSize: 9, fontWeight: 700 }}>
+                            {ml >= 1000 ? (ml/1000)+'L' : ml+'ml'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
+                      <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{daily.sleepHours ?? '—'}h</p>
+                      <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 8 }}>sono essa noite</p>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {[5,7,9].map(h => <button key={h} onClick={() => updateDaily({ sleepHours: h })} style={{ flex: 1, background: C.cardAlt, color: C.dim, border: 'none', borderRadius: 6, padding: '4px', fontSize: 10, fontWeight: 700 }}>{h}h</button>)}
+                      </div>
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })()}
           </div>
         )}
 
@@ -352,7 +489,7 @@ function App() {
   );
 }
 
-const inputStyle = { background: '#0F172A', border: '1px solid #1E293B', borderRadius: 12, padding: '12px 16px', color: '#F8FAFC', fontSize: 14, flex: 1, outline: 'none' };
+const inputStyle = { background: '#0F172A', border: '1px solid #1E293B', borderRadius: 12, padding: '12px 16px', color: '#F8FAFC', fontSize: 14, flex: 1, minWidth: 0, outline: 'none' };
 
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
 </script>

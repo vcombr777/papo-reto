@@ -74,14 +74,21 @@ function logEvent(userId, userName, eventType, payload) {
 }
 
 async function askDona(history, text, images) {
-  const res = await fetch('/api/dona', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ history, text, images }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'erro');
-  return data.text;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  try {
+    const res = await fetch('/api/dona', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ history, text, images }),
+      signal: controller.signal,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'erro');
+    return data.text;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function fileToBase64(file) {
@@ -97,29 +104,63 @@ function fileToBase64(file) {
 function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
-    video.preload = 'metadata';
+    video.preload = 'auto';
     video.muted = true;
+    video.setAttribute('muted', '');
     video.playsInline = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    // alguns navegadores (principalmente iPhone) só decodificam quadros de um vídeo
+    // que está de fato no DOM — por isso anexamos fora da tela, em vez de display:none.
+    video.style.position = 'fixed';
+    video.style.top = '-9999px';
+    video.style.width = '1px';
+    video.style.height = '1px';
+    document.body.appendChild(video);
+
     const url = URL.createObjectURL(file);
     video.src = url;
 
     const frames = [];
     let index = 0;
+    let finished = false;
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
 
+    const cleanup = () => {
+      finished = true;
+      clearTimeout(timeoutId);
+      URL.revokeObjectURL(url);
+      if (video.parentNode) video.parentNode.removeChild(video);
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (finished) return;
+      cleanup();
+      if (frames.length > 0) {
+        resolve(frames); // aproveita o que já conseguiu capturar
+      } else {
+        reject(new Error('Tempo esgotado lendo o vídeo'));
+      }
+    }, 20000);
+
     const captureCurrent = () => {
-      const scale = Math.min(1, maxWidth / video.videoWidth);
-      canvas.width = video.videoWidth * scale;
-      canvas.height = video.videoHeight * scale;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      frames.push(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
+      if (finished) return;
+      try {
+        const scale = Math.min(1, maxWidth / (video.videoWidth || maxWidth));
+        canvas.width = (video.videoWidth || maxWidth) * scale;
+        canvas.height = (video.videoHeight || maxWidth) * scale;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        frames.push(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
+      } catch (e) {
+        // se um quadro específico falhar, segue pros próximos em vez de travar tudo
+      }
       index += 1;
       if (index < frameCount) {
         seekNext();
       } else {
-        URL.revokeObjectURL(url);
+        cleanup();
         resolve(frames);
       }
     };
@@ -131,7 +172,7 @@ function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
 
     video.onloadedmetadata = () => seekNext();
     video.onseeked = () => captureCurrent();
-    video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não consegui ler esse vídeo')); };
+    video.onerror = () => { cleanup(); reject(new Error('Não consegui ler esse vídeo')); };
   });
 }
 

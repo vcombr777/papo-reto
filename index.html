@@ -106,6 +106,37 @@ const GOAL_INFO = {
   ganhar: { label: 'Ganhar massa', adjustPct: 0.15 },
 };
 
+const MUSCLE_GROUPS = ['Peito', 'Costas', 'Perna', 'Ombro', 'Bíceps', 'Tríceps', 'Core'];
+
+const EXERCISES = [
+  { id: 'e1', name: 'Supino reto (barra ou halteres)', group: 'Peito', tips: ['Escápulas retraídas e ombros para trás durante todo o movimento', 'Barra desce até tocar leve no peito, sem quicar', 'Cotovelos numa leve diagonal, não travados a 90°'], attention: 'Arquear demais a lombar tira carga do peito e sobrecarrega a coluna.' },
+  { id: 'e2', name: 'Crucifixo (banco reto ou inclinado)', group: 'Peito', tips: ['Cotovelos com uma leve flexão fixa do início ao fim', 'Movimento em arco, como abraçando um tronco', 'Contração no topo sem bater os pesos'], attention: 'Descer demais pode forçar o ombro; pare quando sentir o alongamento no peito.' },
+  { id: 'e3', name: 'Flexão de braço', group: 'Peito', tips: ['Corpo alinhado, sem quadril caído ou empinado', 'Desce até o peito quase tocar o chão', 'Cotovelos numa diagonal de ~45°'], attention: 'Deixar o quadril cair sobrecarrega a lombar.' },
+  { id: 'e4', name: 'Puxada frontal (pulley)', group: 'Costas', tips: ['Puxe levando os cotovelos para baixo e para trás', 'Peito aberto, leve inclinação do tronco para trás', 'Controle a subida, não solte o peso'], attention: 'Usar embalo do corpo tira o trabalho das costas.' },
+  { id: 'e5', name: 'Remada curvada (barra ou halteres)', group: 'Costas', tips: ['Tronco inclinado à frente, coluna neutra', 'Puxe o peso em direção ao abdômen', 'Cotovelos próximos ao corpo'], attention: 'Arredondar a lombar nessa posição é o erro mais comum e mais arriscado.' },
+  { id: 'e6', name: 'Remada unilateral (halter no banco)', group: 'Costas', tips: ['Apoio firme com joelho e mão no banco', 'Puxe o cotovelo para trás, não para cima', 'Evite girar o tronco durante o movimento'], attention: 'Girar o tronco para "ajudar" tira o trabalho do músculo alvo.' },
+  { id: 'e7', name: 'Agachamento livre', group: 'Perna', tips: ['Pés na largura dos ombros, joelhos seguindo a direção dos pés', 'Desce como se fosse sentar numa cadeira, peso nos calcanhares', 'Tronco ereto, olhar à frente'], attention: 'Joelhos caindo para dentro é o erro mais comum — foca em empurrá-los para fora.' },
+  { id: 'e8', name: 'Leg press', group: 'Perna', tips: ['Pés na largura dos ombros na plataforma', 'Não trave os joelhos no topo do movimento', 'Desce até 90° de flexão do joelho'], attention: 'Descer demais tirando o quadril do encosto sobrecarrega a lombar.' },
+  { id: 'e9', name: 'Cadeira extensora', group: 'Perna', tips: ['Costas apoiadas no encosto durante todo o movimento', 'Suba controlado, sem chutar o peso', 'Pausa de 1 segundo no topo'], attention: 'Usar impulso (chutar a carga) reduz o trabalho do quadríceps.' },
+  { id: 'e10', name: 'Stiff (levantamento terra romeno)', group: 'Perna', tips: ['Joelhos com leve flexão fixa', 'Desce empurrando o quadril para trás, barra próxima às pernas', 'Para quando sentir o alongamento no posterior de coxa'], attention: 'Arredondar as costas aqui é o erro mais perigoso desse exercício.' },
+  { id: 'e11', name: 'Desenvolvimento de ombro', group: 'Ombro', tips: ['Cotovelos numa diagonal à frente, não totalmente abertos', 'Não trave os cotovelos no topo', 'Core contraído para proteger a lombar'], attention: 'Arquear a lombar pra "ajudar" a empurrar o peso é comum e arriscado.' },
+  { id: 'e12', name: 'Elevação lateral', group: 'Ombro', tips: ['Suba até a linha do ombro, não mais que isso', 'Cotovelos com leve flexão fixa', 'Movimento controlado, sem embalar o corpo'], attention: 'Usar peso pesado demais faz o trapézio "roubar" o movimento do ombro.' },
+  { id: 'e13', name: 'Elevação frontal', group: 'Ombro', tips: ['Suba até a altura dos ombros', 'Cotovelos com leve flexão fixa', 'Evite balançar o tronco para impulsionar'], attention: 'Balançar o corpo tira a tensão do músculo alvo.' },
+  { id: 'e14', name: 'Rosca direta (barra ou halteres)', group: 'Bíceps', tips: ['Cotovelos fixos ao lado do corpo durante todo o movimento', 'Desce controlado, sem soltar o peso', 'Evite balançar o tronco'], attention: 'Balançar o corpo ("rosca 21 involuntária") tira o trabalho do bíceps.' },
+  { id: 'e15', name: 'Rosca alternada', group: 'Bíceps', tips: ['Gire o punho (supinação) conforme sobe', 'Cotovelo parado, só o antebraço se move', 'Descida controlada'], attention: 'Levantar o cotovelo junto com o peso reduz o estímulo no bíceps.' },
+  { id: 'e16', name: 'Rosca martelo', group: 'Bíceps', tips: ['Pegada neutra (palma virada pro corpo) do início ao fim', 'Cotovelo fixo ao lado do corpo', 'Controle tanto na subida quanto na descida'], attention: 'Balançar o ombro pra frente é sinal de peso pesado demais.' },
+  { id: 'e17', name: 'Tríceps pulley (corda ou barra)', group: 'Tríceps', tips: ['Cotovelos fixos ao lado do corpo, sem abrir', 'Estenda o braço completamente, sem travar com força', 'Controle a volta, não solte'], attention: 'Abrir os cotovelos para os lados tira o foco do tríceps.' },
+  { id: 'e18', name: 'Tríceps francês', group: 'Tríceps', tips: ['Cotovelos apontando para o teto, fixos', 'Desce o peso atrás da cabeça controlado', 'Estenda sem travar o cotovelo com força'], attention: 'Abrir os cotovelos durante a descida é o erro mais comum aqui.' },
+  { id: 'e19', name: 'Mergulho no banco (tríceps)', group: 'Tríceps', tips: ['Mãos próximas ao corpo, cotovelos apontando para trás', 'Desce até 90° no cotovelo, sem forçar mais', 'Quadril próximo ao banco durante o movimento'], attention: 'Descer demais pode sobrecarregar o ombro — vá com cuidado na amplitude.' },
+  { id: 'e20', name: 'Prancha abdominal', group: 'Core', tips: ['Corpo alinhado da cabeça ao calcanhar', 'Abdômen e glúteo contraídos', 'Respiração controlada, sem prender o ar'], attention: 'Deixar o quadril subir ou cair tira a eficiência do exercício.' },
+  { id: 'e21', name: 'Abdominal supra', group: 'Core', tips: ['Mão leve na nuca, sem puxar o pescoço', 'Suba usando o abdômen, não o impulso do braço', 'Desça controlado, sem jogar o corpo'], attention: 'Puxar o pescoço com as mãos pode gerar dor cervical.' },
+  { id: 'e22', name: 'Elevação de pernas', group: 'Core', tips: ['Lombar apoiada no chão ou banco durante todo o movimento', 'Desce as pernas sem deixar a lombar arquear', 'Controle tanto na subida quanto na descida'], attention: 'Deixar a lombar despregar do chão é o erro mais comum e mais arriscado.' },
+];
+
+function youtubeSearchUrl(name) {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(name + ' execução correta')}`;
+}
+
 // Fórmula de Mifflin-St Jeor (padrão usado por calculadoras de calorias) + fator de atividade (Harris-Benedict)
 function computeCalorieBreakdown(profile) {
   const weight = parseFloat(profile.weight);
@@ -181,6 +212,8 @@ function App() {
   const [busyLabel, setBusyLabel] = useState('DONA tá digitando...');
   const [input, setInput] = useState('');
   const [showBreakdown, setShowBreakdown] = useState(true);
+  const [galleryGroup, setGalleryGroup] = useState('Todos');
+  const [expandedExercise, setExpandedExercise] = useState(null);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const googleBtnRef = useRef(null);
@@ -510,10 +543,53 @@ function App() {
             </div>
           </div>
         )}
+
+        {tab === 'galeria' && (
+          <div style={{ height: '100%', overflowY: 'auto', padding: '16px 20px' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>GALERIA</p>
+            <h1 style={{ fontSize: 20, fontWeight: 900, color: C.text, margin: '4px 0 12px' }}>Referência de execução</h1>
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 12, marginBottom: 4 }}>
+              {['Todos', ...MUSCLE_GROUPS].map(g => (
+                <button key={g} onClick={() => setGalleryGroup(g)} style={{ flexShrink: 0, background: galleryGroup === g ? C.emerald : C.card, color: galleryGroup === g ? '#022c1a' : C.dim, border: `1px solid ${galleryGroup === g ? C.emerald : C.border}`, borderRadius: 999, padding: '6px 14px', fontSize: 11, fontWeight: 700 }}>
+                  {g}
+                </button>
+              ))}
+            </div>
+            {EXERCISES.filter(ex => galleryGroup === 'Todos' || ex.group === galleryGroup).map(ex => (
+              <div key={ex.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 10 }}>
+                <button onClick={() => setExpandedExercise(expandedExercise === ex.id ? null : ex.id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ fontSize: 9, color: C.emerald, fontWeight: 700, margin: 0 }}>{ex.group.toUpperCase()}</p>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>{ex.name}</p>
+                  </div>
+                  <span style={{ color: C.dim, fontSize: 12 }}>{expandedExercise === ex.id ? '▲' : '▼'}</span>
+                </button>
+                {expandedExercise === ex.id && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: C.dim, margin: '0 0 6px' }}>DICAS DE EXECUÇÃO</p>
+                    <ul style={{ margin: '0 0 10px', paddingLeft: 18 }}>
+                      {ex.tips.map((t, i) => <li key={i} style={{ fontSize: 12, color: C.text, marginBottom: 4 }}>{t}</li>)}
+                    </ul>
+                    <div style={{ background: C.cardAlt, borderRadius: 8, padding: 10, marginBottom: 10 }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: C.amber, margin: '0 0 4px' }}>⚠ PONTO DE ATENÇÃO</p>
+                      <p style={{ fontSize: 12, color: C.text, margin: 0 }}>{ex.attention}</p>
+                    </div>
+                    <a href={youtubeSearchUrl(ex.name)} target="_blank" rel="noopener noreferrer" style={{ display: 'block', textAlign: 'center', background: C.emeraldDim, color: C.text, borderRadius: 8, padding: '8px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+                      ▶ Ver execução no YouTube
+                    </a>
+                  </div>
+                )}
+              </div>
+            ))}
+            <p style={{ fontSize: 10, color: C.dim, textAlign: 'center', marginTop: 8 }}>
+              Manda um vídeo do seu treino pra DONA no chat pra ela te dar dicas específicas.
+            </p>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', borderTop: `1px solid ${C.border}` }}>
-        {[['home','Painel'], ['chat','DONA']].map(([id, label]) => (
+        {[['home','Painel'], ['chat','DONA'], ['galeria','Galeria']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flex: 1, background: 'none', border: 'none', padding: '12px 0', color: tab === id ? C.emerald : C.dim, fontSize: 10, fontWeight: 700 }}>{label}</button>
         ))}
       </div>

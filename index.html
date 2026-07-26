@@ -180,7 +180,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('DONA tá digitando...');
   const [input, setInput] = useState('');
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(true);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const googleBtnRef = useRef(null);
@@ -372,6 +372,28 @@ function App() {
               </div>
             </div>
 
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>peso</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{profile.weight}kg</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>altura</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{profile.height}cm</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>idade</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{profile.age}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>atividade</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{(ACTIVITY_FACTORS[profile.activityLevel] || ACTIVITY_FACTORS.leve).label.split(' ')[0]}</p>
+                </div>
+              </div>
+              <button onClick={resetProfile} style={{ background: 'none', border: 'none', color: C.emerald, fontSize: 10, fontWeight: 700, padding: 0 }}>editar</button>
+            </div>
+
             {(() => {
               const cal = computeCalorieBreakdown(profile);
               const waterGoalMl = computeWaterGoalMl(profile.weight);
@@ -447,6 +469,16 @@ function App() {
                 </React.Fragment>
               );
             })()}
+
+            <button onClick={() => setTab('chat')} style={{ width: '100%', textAlign: 'left', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 18, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, flexShrink: 0 }}>D</div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: C.dim, margin: 0 }}>DONA diz</p>
+                <p style={{ fontSize: 13, color: C.text, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {messages.length ? messages[messages.length - 1].text : 'Toque pra conversar'}
+                </p>
+              </div>
+            </button>
           </div>
         )}
 

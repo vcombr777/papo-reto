@@ -9,8 +9,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'Papo Reto', {
       body: data.body || '',
-      icon: 'icon-192.png',
-      badge: 'icon-192.png',
+      icon: '/papo-reto/icon-192.png',
+      badge: '/papo-reto/icon-192.png',
     })
   );
 });

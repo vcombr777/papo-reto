@@ -119,6 +119,7 @@ function buildProfileSummary(profile, daily) {
     profile.trains ? `Treina: ${(WORKOUT_TYPES[profile.workoutType] || {}).label || profile.workoutType}${profile.workoutTime ? `, geralmente às ${profile.workoutTime}` : ''}` : 'Ainda não tem rotina de treino definida',
     daily && daily.sleepHours ? `Sono relatado hoje: ${daily.sleepHours}h` : null,
     daily && daily.workoutKcal ? `Estimativa de kcal queimadas no treino de hoje: ${daily.workoutKcal}` : null,
+    daily && daily.caloriesConsumed ? `Calorias já registradas hoje: ${daily.caloriesConsumed} kcal` : null,
   ].filter(Boolean);
   return parts.join(' | ');
 }
@@ -350,13 +351,13 @@ function estimateWorkoutKcal(workoutType, minutes, weight) {
   return Math.round(met * w * hours);
 }
 
-function Ring({ pct, size = 108 }) {
+function Ring({ pct, size = 108, color }) {
   const stroke = 9, r = (size - stroke) / 2, c = 2 * Math.PI * r;
   return (
     <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
       <circle cx={size/2} cy={size/2} r={r} stroke={C.border} strokeWidth={stroke} fill="none" />
-      <circle cx={size/2} cy={size/2} r={r} stroke={C.emerald} strokeWidth={stroke} fill="none"
-        strokeDasharray={c} strokeDashoffset={c - c * Math.min(1, pct)} strokeLinecap="round" />
+      <circle cx={size/2} cy={size/2} r={r} stroke={color || C.emerald} strokeWidth={stroke} fill="none"
+        strokeDasharray={c} strokeDashoffset={c - c * Math.min(1, pct)} strokeLinecap="round" style={{ transition: 'stroke 0.3s' }} />
     </svg>
   );
 }
@@ -383,6 +384,7 @@ function App() {
   const [daily, setDaily] = useState(() => load(`daily:${todayKey()}`, { waterMl: 0, sleepHours: null }));
   const [containerMl, setContainerMl] = useState(() => load('container_ml', 200));
   const [workoutMinutes, setWorkoutMinutes] = useState('');
+  const [mealKcalInput, setMealKcalInput] = useState('');
   const [workoutTypeInput, setWorkoutTypeInput] = useState(() => profile ? (profile.workoutType || 'musculacao') : 'musculacao');
   const [streak, setStreak] = useState(0);
   const [messages, setMessages] = useState(() => load('chat_ui', [
@@ -483,10 +485,23 @@ function App() {
     setBusy(true);
     try {
       const profileSummary = buildProfileSummary(profile, daily);
-      const reply = await askDona(geminiHistoryRef.current, apiText, images, profileSummary);
+      const rawReply = await askDona(geminiHistoryRef.current, apiText, images, profileSummary);
+
+      // Captura automática: se a DONA etiquetou uma estimativa de calorias, soma sozinho no painel
+      const kcalMatch = rawReply.match(/\[\[KCAL:(\d+)\]\]/);
+      let reply = rawReply.replace(/\s*\[\[KCAL:\d+\]\]\s*$/, '').trim();
+      if (kcalMatch) {
+        const kcal = parseInt(kcalMatch[1], 10);
+        if (kcal > 0) {
+          const newTotal = (daily.caloriesConsumed || 0) + kcal;
+          updateDaily({ caloriesConsumed: newTotal });
+          reply += `\n\n✅ +${kcal} kcal adicionadas automaticamente ao seu painel.`;
+        }
+      }
+
       const imageParts = (images || []).map(img => ({ inline_data: { mime_type: img.mimeType, data: img.data } }));
       const userParts = [...imageParts, { text: apiText }];
-      geminiHistoryRef.current = [...geminiHistoryRef.current, { role: 'user', parts: userParts }, { role: 'model', parts: [{ text: reply }] }];
+      geminiHistoryRef.current = [...geminiHistoryRef.current, { role: 'user', parts: userParts }, { role: 'model', parts: [{ text: rawReply }] }];
       save('chat_api', geminiHistoryRef.current);
       const finalMsgs = [...nextMsgs, { id: Date.now() + 1, from: 'dona', text: reply }];
       setMessages(finalMsgs); save('chat_ui', finalMsgs);
@@ -714,20 +729,27 @@ function App() {
               const waterL = (waterMl / 1000).toFixed(1);
               const goalL = (waterGoalMl / 1000).toFixed(1);
               const waterPct = Math.min(1, waterMl / waterGoalMl);
+              const consumed = daily.caloriesConsumed || 0;
+              const workoutBonus = daily.workoutKcal || 0;
+              const adjustedTarget = cal ? cal.target + workoutBonus : 0;
+              const eatenPct = cal ? Math.min(1, consumed / adjustedTarget) : 0;
+              const ringColor = eatenPct >= 1 ? '#EF4444' : eatenPct >= 0.85 ? C.amber : C.emerald;
               return (
                 <React.Fragment>
                   <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
                       <div style={{ position: 'relative', width: 108, height: 108 }}>
-                        <Ring pct={cal ? 0.5 : 0} />
+                        <Ring pct={eatenPct} color={ringColor} />
                         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                          <span style={{ fontSize: 18, fontWeight: 900, color: C.text }}>{cal ? cal.target : '—'}</span>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: C.dim }}>kcal meta</span>
+                          <span style={{ fontSize: 16, fontWeight: 900, color: eatenPct >= 1 ? '#EF4444' : C.text }}>{consumed}</span>
+                          <span style={{ fontSize: 9, fontWeight: 600, color: C.dim }}>de {cal ? adjustedTarget : '—'} kcal</span>
                         </div>
                       </div>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontSize: 14, fontWeight: 600, color: C.text, margin: 0 }}>{cal ? cal.goalLabel : 'Complete seu perfil'}</p>
-                        <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>Manda fotos das refeições, a DONA desconta da meta.</p>
+                        <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>
+                          {workoutBonus > 0 ? `Meta base ${cal ? cal.target : '—'} + ${workoutBonus} do treino de hoje.` : 'Manda fotos das refeições, a DONA estima a caloria.'}
+                        </p>
                         {cal && (
                           <button onClick={() => setShowBreakdown(s => !s)} style={{ background: 'none', border: 'none', color: C.emerald, fontSize: 11, fontWeight: 700, padding: 0, marginTop: 6 }}>
                             {showBreakdown ? 'Esconder a conta ▲' : 'Ver a conta ▼'}
@@ -750,6 +772,30 @@ function App() {
                           <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{cal.adjustKcal >= 0 ? '+' : ''}{cal.adjustKcal} kcal → meta final {cal.target} kcal</p>
                         </div>
                       </div>
+                    )}
+                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        placeholder="kcal que comeu agora"
+                        value={mealKcalInput}
+                        onChange={e => setMealKcalInput(e.target.value)}
+                        style={{ ...inputStyle, padding: '10px 12px', fontSize: 12 }}
+                      />
+                      <button
+                        onClick={() => {
+                          const add = parseInt(mealKcalInput) || 0;
+                          if (add > 0) updateDaily({ caloriesConsumed: consumed + add });
+                          setMealKcalInput('');
+                        }}
+                        style={{ background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '10px 16px', fontSize: 12, fontWeight: 700, flexShrink: 0 }}
+                      >
+                        + registrar
+                      </button>
+                    </div>
+                    {consumed > 0 && (
+                      <button onClick={() => updateDaily({ caloriesConsumed: 0 })} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 10, padding: 0, marginTop: 8, textDecoration: 'underline' }}>
+                        zerar registro de hoje
+                      </button>
                     )}
                   </div>
 

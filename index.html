@@ -4,8 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Papo Reto</title>
-<link rel="manifest" href="./manifest.json" />
-<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+<link rel="manifest" href="/papo-reto/manifest.json" />
+<link rel="apple-touch-icon" href="/papo-reto/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Papo Reto" />
@@ -49,7 +49,7 @@ const { useState, useEffect, useRef } = React;
 
 // ====== CONFIGURE AQUI depois de criar sua conta no Supabase (veja README.md) ======
 const SUPABASE_URL = 'https://jpotuylypnjqblvwnrfn.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_mxqrRieAI59y3eu0-_1aIw_YxtFmnsn';
+const SUPABASE_ANON_KEY = 'COLE_AQUI_A_ANON_KEY_DO_SEU_PROJETO_SUPABASE';
 // =====================================================================================
 
 // ====== CONFIGURE AQUI depois de criar seu Google Client ID (veja README.md) ======
@@ -1181,7 +1181,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 </script>
 <script>
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('/papo-reto/sw.js').catch(() => {}));
   }
 </script>
 </body>

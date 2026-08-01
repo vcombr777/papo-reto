@@ -82,7 +82,7 @@ function logEvent(userId, userName, eventType, payload) {
 // A função que fala com a DONA agora roda no Supabase (mais folga de uso que a Netlify).
 // Depois de publicar a função lá, troque essa URL pela do seu projeto:
 // https://SEU-PROJETO.supabase.co/functions/v1/dona-edge-function
-const DONA_ENDPOINT = 'COLE_AQUI_A_URL_DA_SUA_FUNCAO_NO_SUPABASE';
+const DONA_ENDPOINT = 'https://jpotuylypnjqblvwnrfn.supabase.co/functions/v1/dona-edge-function';
 
 async function askDona(history, text, images, profileSummary) {
   const controller = new AbortController();

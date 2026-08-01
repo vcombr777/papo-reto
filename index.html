@@ -731,7 +731,8 @@ function App() {
               const waterPct = Math.min(1, waterMl / waterGoalMl);
               const consumed = daily.caloriesConsumed || 0;
               const workoutBonus = daily.workoutKcal || 0;
-              const adjustedTarget = cal ? cal.target + workoutBonus : 0;
+              const workoutCountsForMeta = profile.goal !== 'emagrecer';
+              const adjustedTarget = cal ? cal.target + (workoutCountsForMeta ? workoutBonus : 0) : 0;
               const eatenPct = cal ? Math.min(1, consumed / adjustedTarget) : 0;
               const ringColor = eatenPct >= 1 ? '#EF4444' : eatenPct >= 0.85 ? C.amber : C.emerald;
               return (
@@ -748,7 +749,11 @@ function App() {
                       <div style={{ flex: 1 }}>
                         <p style={{ fontSize: 14, fontWeight: 600, color: C.text, margin: 0 }}>{cal ? cal.goalLabel : 'Complete seu perfil'}</p>
                         <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>
-                          {workoutBonus > 0 ? `Meta base ${cal ? cal.target : '—'} + ${workoutBonus} do treino de hoje.` : 'Manda fotos das refeições, a DONA estima a caloria.'}
+                          {workoutBonus > 0
+                            ? (workoutCountsForMeta
+                                ? `Meta base ${cal ? cal.target : '—'} + ${workoutBonus} do treino de hoje.`
+                                : `${workoutBonus} kcal queimadas no treino — mantidas fora da meta pra preservar o déficit.`)
+                            : 'Manda fotos das refeições, a DONA estima a caloria.'}
                         </p>
                         {cal && (
                           <button onClick={() => setShowBreakdown(s => !s)} style={{ background: 'none', border: 'none', color: C.emerald, fontSize: 11, fontWeight: 700, padding: 0, marginTop: 6 }}>

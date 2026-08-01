@@ -4,8 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Papo Reto</title>
-<link rel="manifest" href="/manifest.json" />
-<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Papo Reto" />
@@ -37,6 +37,9 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- DEBUG TEMPORÁRIO: mostra o console de erros na tela do celular. Remover depois de resolver o vídeo. -->
+<script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+<script>eruda.init();</script>
 </head>
 <body>
 <div id="root"></div>
@@ -73,14 +76,22 @@ function logEvent(userId, userName, eventType, payload) {
   }).catch(() => {});
 }
 
-async function askDona(history, text, images) {
+// A função que fala com a DONA continua rodando só na Netlify (é lá que a chave do
+// Gemini fica escondida) — mas o SITE em si pode ser hospedado em qualquer lugar
+// (como o GitHub Pages) chamando esse endereço de longe.
+// A função que fala com a DONA agora roda no Supabase (mais folga de uso que a Netlify).
+// Depois de publicar a função lá, troque essa URL pela do seu projeto:
+// https://SEU-PROJETO.supabase.co/functions/v1/dona-edge-function
+const DONA_ENDPOINT = 'https://jpotuylypnjqblvwnrfn.supabase.co/functions/v1/dona-edge-function';
+
+async function askDona(history, text, images, profileSummary) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 45000);
   try {
-    const res = await fetch('/api/dona', {
+    const res = await fetch(DONA_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ history, text, images }),
+      body: JSON.stringify({ history, text, images, profileSummary }),
       signal: controller.signal,
     });
     const data = await res.json();
@@ -89,6 +100,25 @@ async function askDona(history, text, images) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+// Monta um resumo do perfil pra DONA "lembrar" quem é a pessoa em toda mensagem
+function buildProfileSummary(profile, daily) {
+  if (!profile) return '';
+  const cal = computeCalorieBreakdown(profile);
+  const waterGoal = computeWaterGoalMl(profile.weight);
+  const parts = [
+    `Nome: ${profile.name}`,
+    profile.age ? `Idade: ${profile.age} anos` : null,
+    profile.sex ? `Sexo: ${profile.sex === 'M' ? 'masculino' : 'feminino'}` : null,
+    profile.weight ? `Peso: ${profile.weight}kg` : null,
+    profile.height ? `Altura: ${profile.height}cm` : null,
+    cal ? `Objetivo: ${cal.goalLabel}` : null,
+    cal ? `Meta calórica diária calculada: ${cal.target} kcal` : null,
+    `Meta de água diária: ${(waterGoal / 1000).toFixed(1)}L`,
+    daily && daily.sleepHours ? `Sono relatado hoje: ${daily.sleepHours}h` : null,
+  ].filter(Boolean);
+  return parts.join(' | ');
 }
 
 function fileToBase64(file) {
@@ -102,6 +132,7 @@ function fileToBase64(file) {
 
 // Extrai N quadros espalhados ao longo do vídeo, direto no navegador (nada é enviado como vídeo bruto).
 function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
+  console.log('[video] iniciando extração. arquivo:', file.name, file.type, (file.size / 1024 / 1024).toFixed(2) + 'MB');
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.preload = 'auto';
@@ -154,12 +185,14 @@ function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
         canvas.height = Math.max(1, Math.round((video.videoHeight || maxWidth) * scale));
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         frames.push(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
+        console.log('[video] quadro capturado', frames.length, 'de', frameCount);
       } catch (e) {
-        // um quadro falhar não deve travar os outros
+        console.error('[video] erro ao capturar quadro:', e.name, e.message);
       }
     };
 
     const finishUp = () => {
+      console.log('[video] finalizado, total de quadros:', frames.length);
       cleanup();
       resolve(frames);
     };
@@ -167,6 +200,7 @@ function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
     // Método principal: reproduz o vídeo de verdade (mudo) e captura quadros
     // conforme ele passa pelos tempos-alvo — é o jeito recomendado pra funcionar no iOS.
     const runByPlayback = () => {
+      console.log('[video] usando requestVideoFrameCallback');
       const onFrame = (now, metadata) => {
         if (finished) return;
         const t = metadata.mediaTime;
@@ -178,11 +212,17 @@ function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
         video.requestVideoFrameCallback(onFrame);
       };
       video.requestVideoFrameCallback(onFrame);
-      video.play().catch(() => runBySeek());
+      video.play().then(() => {
+        console.log('[video] play() iniciou com sucesso');
+      }).catch((e) => {
+        console.error('[video] play() falhou:', e.name, e.message, '-> caindo pro método de busca');
+        runBySeek();
+      });
     };
 
     // Método reserva: pula ponto a ponto (usado se o navegador não suportar o método acima)
     const runBySeek = () => {
+      console.log('[video] usando método de busca (seek)');
       let seekIndex = 0;
       const seekNext = () => { if (!finished) video.currentTime = targets[seekIndex]; };
       video.onseeked = () => {
@@ -196,12 +236,17 @@ function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
     };
 
     video.onloadedmetadata = () => {
+      console.log('[video] metadados carregados. duração:', video.duration, 'dimensões:', video.videoWidth, 'x', video.videoHeight, 'rVFC disponível:', typeof video.requestVideoFrameCallback === 'function');
       const dur = video.duration || 1;
       targets = Array.from({ length: frameCount }, (_, i) => (dur * (i + 1)) / (frameCount + 1));
       if (typeof video.requestVideoFrameCallback === 'function') runByPlayback();
       else runBySeek();
     };
-    video.onerror = () => { cleanup(); reject(new Error('Não consegui ler esse vídeo')); };
+    video.onerror = () => {
+      console.error('[video] evento de erro do elemento <video>. código:', video.error && video.error.code, 'mensagem:', video.error && video.error.message);
+      cleanup();
+      reject(new Error('Não consegui ler esse vídeo'));
+    };
   });
 }
 
@@ -332,6 +377,7 @@ function App() {
   const videoInputRef = useRef(null);
   const googleBtnRef = useRef(null);
   const [googleProfile, setGoogleProfile] = useState(null);
+  const [onboardStep, setOnboardStep] = useState('auth'); // 'auth' | 'welcome' | 'form'
   const googleReady = !GOOGLE_CLIENT_ID.startsWith('COLE_AQUI');
 
   useEffect(() => {
@@ -342,6 +388,7 @@ function App() {
         const payload = JSON.parse(atob(resp.credential.split('.')[1]));
         setGoogleProfile({ sub: payload.sub, name: payload.name, email: payload.email, picture: payload.picture });
         setForm((f) => ({ ...f, name: payload.name }));
+        setOnboardStep('welcome');
       } catch (e) {}
     };
     const tryInit = () => {
@@ -410,7 +457,8 @@ function App() {
     setMessages(nextMsgs); save('chat_ui', nextMsgs);
     setBusy(true);
     try {
-      const reply = await askDona(geminiHistoryRef.current, apiText, images);
+      const profileSummary = buildProfileSummary(profile, daily);
+      const reply = await askDona(geminiHistoryRef.current, apiText, images, profileSummary);
       const imageParts = (images || []).map(img => ({ inline_data: { mime_type: img.mimeType, data: img.data } }));
       const userParts = [...imageParts, { text: apiText }];
       geminiHistoryRef.current = [...geminiHistoryRef.current, { role: 'user', parts: userParts }, { role: 'model', parts: [{ text: reply }] }];
@@ -488,12 +536,14 @@ function App() {
     setBusy(true);
     try {
       const frames = await extractVideoFrames(file, 5, 480);
+      if (!frames.length) throw new Error('Nenhum quadro foi capturado do vídeo');
       const previewUrl = 'data:image/jpeg;base64,' + frames[0];
       const caption = 'Analisa a execução desse exercício nesses quadros e me dá dicas de melhoria — sempre como sugestão, não como prescrição.';
       const images = frames.map(f => ({ data: f, mimeType: 'image/jpeg' }));
       setBusy(false);
       runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, images);
     } catch (err) {
+      console.error('[video] handleVideo falhou:', err.name, err.message, err.stack);
       setBusy(false);
       const finalMsgs = [...messages, { id: Date.now(), from: 'dona', text: 'Esse formato de vídeo travou aqui (é uma limitação conhecida do Safari/iPhone). Manda 3-5 fotos da execução em vez do vídeo — funciona melhor.' }];
       setMessages(finalMsgs); save('chat_ui', finalMsgs);
@@ -503,20 +553,51 @@ function App() {
   if (!profile) {
     return (
       <Phone>
-        <div style={{ overflowY: 'auto', padding: '32px 24px', flex: 1, minHeight: 0 }}>
-          <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald }}>PAPO RETO</p>
-          <h1 style={{ fontSize: 24, fontWeight: 900, color: C.text, margin: '4px 0' }}>Chega de enrolação.</h1>
-          <p style={{ fontSize: 12, color: C.dim, marginBottom: 24 }}>Cria seu perfil pra DONA começar a te acompanhar.</p>
+        <div style={{ overflowY: 'auto', padding: '32px 24px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {onboardStep === 'auth' && (
+            <React.Fragment>
+              <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald }}>PAPO RETO</p>
+              <h1 style={{ fontSize: 24, fontWeight: 900, color: C.text, margin: '4px 0' }}>Chega de enrolação.</h1>
+              <p style={{ fontSize: 12, color: C.dim, marginBottom: 24 }}>Entra pra DONA começar a te acompanhar.</p>
+              {googleReady ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '20px 0' }}>
+                  <div ref={googleBtnRef}></div>
+                  <p style={{ fontSize: 10, color: C.dim }}>Entre com o Google pra criar seu perfil</p>
+                </div>
+              ) : (
+                <button onClick={() => setOnboardStep('welcome')} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>
+                  Vamos começar
+                </button>
+              )}
+            </React.Fragment>
+          )}
 
-          {googleReady && !googleProfile && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '20px 0' }}>
-              <div ref={googleBtnRef}></div>
-              <p style={{ fontSize: 10, color: C.dim }}>Entre com o Google pra criar seu perfil</p>
+          {onboardStep === 'welcome' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 16 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 32, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 26 }}>D</div>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>OI, EU SOU A</p>
+                <h1 style={{ fontSize: 26, fontWeight: 900, color: C.text, margin: '4px 0' }}>DONA</h1>
+              </div>
+              <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, maxWidth: 280 }}>
+                Sua mentora de resultados aqui no Papo Reto. Sem enrolação: eu calculo sua meta de calorias e água,
+                te dou dicas de cardápio e treino, analiso fotos de comida e de execução de exercício — e te ajudo
+                a manter a constância nos dias difíceis também.
+              </p>
+              <p style={{ fontSize: 11, color: C.dim, maxWidth: 280 }}>
+                Não sou nutricionista nem educadora física — sou sua parceira de rotina, sempre te orientando pro
+                caminho certo.
+              </p>
+              <button onClick={() => setOnboardStep('form')} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px 32px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>
+                Continuar
+              </button>
             </div>
           )}
 
-          {(!googleReady || googleProfile) && (
+          {onboardStep === 'form' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>ÚLTIMO PASSO</p>
+            <h1 style={{ fontSize: 20, fontWeight: 900, color: C.text, margin: '0 0 4px' }}>Seus dados</h1>
             {googleProfile && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 10 }}>
                 <img src={googleProfile.picture} style={{ width: 32, height: 32, borderRadius: 16 }} />
@@ -572,31 +653,19 @@ function App() {
               <div style={{ textAlign: 'right' }}>
                 <p style={{ fontSize: 22, fontWeight: 900, color: C.text, margin: 0 }}>{streak}</p>
                 <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, margin: 0 }}>dias seguidos</p>
-                <button onClick={resetProfile} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 9, marginTop: 6, padding: 0, textDecoration: 'underline' }}>trocar perfil</button>
               </div>
             </div>
 
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', gap: 16 }}>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>peso</p>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{profile.weight}kg</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>altura</p>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{profile.height}cm</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>idade</p>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{profile.age}</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>atividade</p>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{(ACTIVITY_FACTORS[profile.activityLevel] || ACTIVITY_FACTORS.leve).label.split(' ')[0]}</p>
-                </div>
+            <button onClick={() => setTab('chat')} style={{ width: '100%', textAlign: 'left', background: `linear-gradient(135deg, ${C.emeraldDim}, ${C.card})`, border: `1px solid ${C.emerald}`, borderRadius: 20, padding: 20, display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 24, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 20, flexShrink: 0 }}>D</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>Fala com a DONA</p>
+                <p style={{ fontSize: 12, color: 'rgba(248,250,252,0.85)', margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {messages.length ? messages[messages.length - 1].text : 'Toque pra começar a conversa'}
+                </p>
               </div>
-              <button onClick={resetProfile} style={{ background: 'none', border: 'none', color: C.emerald, fontSize: 10, fontWeight: 700, padding: 0 }}>editar</button>
-            </div>
+              <span style={{ color: C.text, fontSize: 18 }}>›</span>
+            </button>
 
             {(() => {
               const cal = computeCalorieBreakdown(profile);
@@ -674,17 +743,7 @@ function App() {
               );
             })()}
 
-            <button onClick={() => setTab('chat')} style={{ width: '100%', textAlign: 'left', background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 18, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, flexShrink: 0 }}>D</div>
-              <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: C.dim, margin: 0 }}>DONA diz</p>
-                <p style={{ fontSize: 13, color: C.text, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {messages.length ? messages[messages.length - 1].text : 'Toque pra conversar'}
-                </p>
-              </div>
-            </button>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <button onClick={askCardapio} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, textAlign: 'left', opacity: busy ? 0.5 : 1 }}>
                 <p style={{ fontSize: 18, margin: '0 0 6px' }}>🍽️</p>
                 <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>Dicas de cardápio</p>
@@ -694,6 +753,60 @@ function App() {
                 <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>Dicas de treino</p>
               </button>
             </div>
+          </div>
+        )}
+
+        {tab === 'perfil' && (
+          <div style={{ height: '100%', overflowY: 'auto', padding: '16px 20px' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>PERFIL</p>
+            <h1 style={{ fontSize: 20, fontWeight: 900, color: C.text, margin: '4px 0 16px' }}>Seus dados</h1>
+
+            {profile.picture && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <img src={profile.picture} style={{ width: 48, height: 48, borderRadius: 24 }} />
+                <div>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.name}</p>
+                  {profile.email && <p style={{ fontSize: 11, color: C.dim, margin: 0 }}>{profile.email}</p>}
+                </div>
+              </div>
+            )}
+
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>peso</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.weight}kg</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>altura</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.height}cm</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>idade</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.age} anos</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>atividade</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{(ACTIVITY_FACTORS[profile.activityLevel] || ACTIVITY_FACTORS.leve).label.split(' ')[0]}</p>
+                </div>
+              </div>
+            </div>
+
+            {(() => {
+              const cal = computeCalorieBreakdown(profile);
+              return cal && (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>objetivo</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.emerald, margin: '0 0 10px' }}>{cal.goalLabel}</p>
+                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>meta calórica diária</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{cal.target} kcal</p>
+                </div>
+              );
+            })()}
+
+            <button onClick={resetProfile} style={{ width: '100%', background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px', color: C.dim, fontSize: 12, fontWeight: 700, marginTop: 8 }}>
+              Trocar perfil / sair
+            </button>
           </div>
         )}
 
@@ -775,7 +888,7 @@ function App() {
       </div>
 
       <div style={{ display: 'flex', borderTop: `1px solid ${C.border}` }}>
-        {[['home','Painel'], ['chat','DONA'], ['galeria','Galeria']].map(([id, label]) => (
+        {[['home','Painel'], ['chat','DONA'], ['galeria','Galeria'], ['perfil','Perfil']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flex: 1, background: 'none', border: 'none', padding: '12px 0', color: tab === id ? C.emerald : C.dim, fontSize: 10, fontWeight: 700 }}>{label}</button>
         ))}
       </div>
@@ -796,7 +909,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 </script>
 <script>
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
   }
 </script>
 </body>

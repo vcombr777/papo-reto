@@ -48,13 +48,16 @@
 const { useState, useEffect, useRef } = React;
 
 // ====== CONFIGURE AQUI depois de criar sua conta no Supabase (veja README.md) ======
-const SUPABASE_URL = 'COLE_AQUI_A_URL_DO_SEU_PROJETO_SUPABASE';
-const SUPABASE_ANON_KEY = 'COLE_AQUI_A_ANON_KEY_DO_SEU_PROJETO_SUPABASE';
+const SUPABASE_URL = 'https://jpotuylypnjqblvwnrfn.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_mxqrRieAI59y3eu0-_1aIw_YxtFmnsn';
 // =====================================================================================
 
 // ====== CONFIGURE AQUI depois de criar seu Google Client ID (veja README.md) ======
 const GOOGLE_CLIENT_ID = 'COLE_AQUI_SEU_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 // =====================================================================================
+
+// Chave pública das notificações push (a privada fica só no Supabase, nunca aqui)
+const VAPID_PUBLIC_KEY = 'BLmNewvYwZsNWbaPcO0oM-CdW_mR0wxE-ZTo7Su-OWKhZfSTlLGA0sZTYwlukHBkX9L3coXKhd76yrlyPfjyOuc';
 
 const C = {
   bg: '#020617', card: '#0F172A', cardAlt: '#111B32', border: '#1E293B',
@@ -64,7 +67,7 @@ const C = {
 function todayKey() { return new Date().toISOString().slice(0, 10); }
 
 function logEvent(userId, userName, eventType, payload) {
-  if (SUPABASE_URL.startsWith('COLE_AQUI')) return; // ainda não configurado, ignora
+  if (SUPABASE_ANON_KEY.startsWith('COLE_AQUI')) return; // ainda não configurado, ignora
   fetch(`${SUPABASE_URL}/rest/v1/events`, {
     method: 'POST',
     headers: {
@@ -74,6 +77,72 @@ function logEvent(userId, userName, eventType, payload) {
     },
     body: JSON.stringify({ user_id: userId, user_name: userName, event_type: eventType, payload }),
   }).catch(() => {});
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+function syncNotificationPrefs(profile, waterGoalMl) {
+  if (SUPABASE_ANON_KEY.startsWith('COLE_AQUI') || !profile) return;
+  fetch(`${SUPABASE_URL}/rest/v1/notification_prefs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Prefer': 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({
+      user_id: profile.id, name: profile.name,
+      trains: !!profile.trains, workout_time: profile.workoutTime || null, workout_type: profile.workoutType || null,
+      water_goal_ml: waterGoalMl,
+    }),
+  }).catch(() => {});
+}
+
+function syncDailyWater(userId, waterMl) {
+  if (SUPABASE_ANON_KEY.startsWith('COLE_AQUI') || !userId) return;
+  fetch(`${SUPABASE_URL}/rest/v1/daily_water`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Prefer': 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ user_id: userId, date: todayKey(), water_ml: waterMl }),
+  }).catch(() => {});
+}
+
+async function subscribeToPush(userId) {
+  if (SUPABASE_ANON_KEY.startsWith('COLE_AQUI')) return { ok: false, reason: 'not_configured' };
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return { ok: false, reason: 'not_supported' };
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return { ok: false, reason: 'denied' };
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+  }
+  const subJson = sub.toJSON();
+  await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Prefer': 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({ user_id: userId, endpoint: subJson.endpoint, p256dh: subJson.keys.p256dh, auth: subJson.keys.auth }),
+  }).catch(() => {});
+  return { ok: true };
 }
 
 // A função que fala com a DONA continua rodando só na Netlify (é lá que a chave do
@@ -386,6 +455,9 @@ function App() {
   const [workoutMinutes, setWorkoutMinutes] = useState('');
   const [mealKcalInput, setMealKcalInput] = useState('');
   const [workoutTypeInput, setWorkoutTypeInput] = useState(() => profile ? (profile.workoutType || 'musculacao') : 'musculacao');
+  const [notifWater, setNotifWater] = useState(() => load('notif_water', true));
+  const [notifMeal, setNotifMeal] = useState(() => load('notif_meal', true));
+  const [notifStatus, setNotifStatus] = useState('idle'); // idle | asking | ok | error
   const [streak, setStreak] = useState(0);
   const [messages, setMessages] = useState(() => load('chat_ui', [
     { id: 1, from: 'dona', text: 'Bom dia. Dormiu quanto essa noite? E manda uma foto do seu prato ou da geladeira quando quiser, eu leio.' },
@@ -444,12 +516,53 @@ function App() {
     setStreak(s.count);
   }, [profile]);
 
+  useEffect(() => {
+    if (!profile || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => { if (sub) setNotifStatus('ok'); })
+      .catch(() => {});
+  }, [profile]);
+
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy, tab]);
 
   const resetProfile = () => {
     if (!window.confirm('Apagar seu perfil e começar o cadastro de novo?')) return;
-    ['profile', 'chat_ui', 'chat_api', 'streak', 'container_ml'].forEach(k => localStorage.removeItem(k));
+    ['profile', 'chat_ui', 'chat_api', 'streak', 'container_ml', 'notif_water', 'notif_meal'].forEach(k => localStorage.removeItem(k));
     window.location.reload();
+  };
+
+  const handleActivateNotifications = async () => {
+    setNotifStatus('asking');
+    const result = await subscribeToPush(profile.id);
+    if (result.ok) {
+      syncNotificationPrefs(profile, computeWaterGoalMl(profile.weight));
+      setNotifStatus('ok');
+    } else {
+      setNotifStatus('error');
+    }
+  };
+
+  const toggleNotifWater = () => {
+    const next = !notifWater;
+    setNotifWater(next);
+    save('notif_water', next);
+    fetch(`${SUPABASE_URL}/rest/v1/notification_prefs?user_id=eq.${profile.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ water_reminders: next }),
+    }).catch(() => {});
+  };
+
+  const toggleNotifMeal = () => {
+    const next = !notifMeal;
+    setNotifMeal(next);
+    save('notif_meal', next);
+    fetch(`${SUPABASE_URL}/rest/v1/notification_prefs?user_id=eq.${profile.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ meal_reminders: next }),
+    }).catch(() => {});
   };
 
   const completeOnboarding = () => {
@@ -465,13 +578,17 @@ function App() {
     save('profile', p);
     setProfile(p);
     logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, goal: p.goal, activityLevel: p.activityLevel, trains: p.trains, viaGoogle: !!googleProfile });
+    syncNotificationPrefs(p, computeWaterGoalMl(p.weight));
   };
 
   const updateDaily = (patch) => {
     const next = { ...daily, ...patch };
     setDaily(next);
     save(`daily:${todayKey()}`, next);
-    if (patch.waterMl !== undefined) logEvent(profile.id, profile.name, 'agua_registrada', { waterMl: next.waterMl });
+    if (patch.waterMl !== undefined) {
+      logEvent(profile.id, profile.name, 'agua_registrada', { waterMl: next.waterMl });
+      syncDailyWater(profile.id, next.waterMl);
+    }
   };
 
   const setContainerSize = (ml) => {
@@ -925,6 +1042,37 @@ function App() {
                 </React.Fragment>
               ) : (
                 <p style={{ fontSize: 13, color: C.dim, margin: '4px 0 0' }}>Ainda sem rotina de treino definida</p>
+              )}
+            </div>
+
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: '0 0 10px' }}>Notificações</p>
+              {notifStatus !== 'ok' ? (
+                <React.Fragment>
+                  <button onClick={handleActivateNotifications} disabled={notifStatus === 'asking'} style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 10, padding: '10px', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                    {notifStatus === 'asking' ? 'Aguardando permissão...' : '🔔 Ativar notificações'}
+                  </button>
+                  {notifStatus === 'error' && (
+                    <p style={{ fontSize: 10, color: C.amber, margin: 0 }}>Não deu pra ativar — confere se permitiu notificações no navegador.</p>
+                  )}
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <p style={{ fontSize: 11, color: C.emerald, margin: '0 0 10px' }}>✓ Notificações ativadas</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <p style={{ fontSize: 12, color: C.text, margin: 0 }}>Lembrete de água (de hora em hora)</p>
+                    <button onClick={toggleNotifWater} style={{ background: notifWater ? C.emerald : C.cardAlt, color: notifWater ? '#022c1a' : C.dim, border: 'none', borderRadius: 999, padding: '4px 10px', fontSize: 10, fontWeight: 700 }}>
+                      {notifWater ? 'Ligado' : 'Desligado'}
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <p style={{ fontSize: 12, color: C.text, margin: 0 }}>Lembrete de refeição</p>
+                    <button onClick={toggleNotifMeal} style={{ background: notifMeal ? C.emerald : C.cardAlt, color: notifMeal ? '#022c1a' : C.dim, border: 'none', borderRadius: 999, padding: '4px 10px', fontSize: 10, fontWeight: 700 }}>
+                      {notifMeal ? 'Ligado' : 'Desligado'}
+                    </button>
+                  </div>
+                  {profile.trains && <p style={{ fontSize: 10, color: C.dim, marginTop: 8 }}>Lembrete de treino segue o horário cadastrado no seu perfil.</p>}
+                </React.Fragment>
               )}
             </div>
 

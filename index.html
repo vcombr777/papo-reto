@@ -420,6 +420,46 @@ function estimateWorkoutKcal(workoutType, minutes, weight) {
   return Math.round(met * w * hours);
 }
 
+// Renderiza **negrito** e listas (linhas começando com * ou -) de forma bonita, sem libs externas
+function renderRichText(text) {
+  const renderInline = (line, keyPrefix) => {
+    const segments = line.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+    return segments.map((seg, i) => {
+      if (seg.startsWith('**') && seg.endsWith('**')) {
+        return <strong key={`${keyPrefix}-${i}`} style={{ color: C.emerald }}>{seg.slice(2, -2)}</strong>;
+      }
+      return <React.Fragment key={`${keyPrefix}-${i}`}>{seg}</React.Fragment>;
+    });
+  };
+
+  const lines = text.split('\n');
+  const blocks = [];
+  let currentList = [];
+
+  const flushList = () => {
+    if (currentList.length) {
+      blocks.push(
+        <ul key={`ul-${blocks.length}`} style={{ margin: '4px 0', paddingLeft: 18 }}>
+          {currentList.map((item, i) => <li key={i} style={{ marginBottom: 3 }}>{renderInline(item, `li-${blocks.length}-${i}`)}</li>)}
+        </ul>
+      );
+      currentList = [];
+    }
+  };
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    if (/^[\*\-]\s+/.test(trimmed)) {
+      currentList.push(trimmed.replace(/^[\*\-]\s+/, ''));
+    } else {
+      flushList();
+      if (trimmed) blocks.push(<p key={`p-${idx}`} style={{ margin: '0 0 6px' }}>{renderInline(trimmed, `p-${idx}`)}</p>);
+    }
+  });
+  flushList();
+  return blocks;
+}
+
 function Ring({ pct, size = 108, color }) {
   const stroke = 9, r = (size - stroke) / 2, c = 2 * Math.PI * r;
   return (
@@ -662,22 +702,22 @@ function App() {
     setBusyLabel('DONA tá analisando a foto...');
     const base64 = await fileToBase64(file);
     const caption = 'O que você vê nessa foto? Quantas calorias, mais ou menos, e tem algum ponto de atenção?';
-    runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, [{ data: base64, mimeType: file.type || 'image/jpeg' }]);
+    runDona({ id: Date.now(), from: 'user', text: caption, displayText: '📷 Foto enviada', image: previewUrl }, caption, [{ data: base64, mimeType: file.type || 'image/jpeg' }]);
   };
 
   const handleExecPhotos = async (e) => {
     const files = Array.from(e.target.files || []).slice(0, 6);
     e.target.value = '';
     if (!files.length || busy) return;
-    setBusyLabel('DONA tá analisando as fotos da execução...');
+    setBusyLabel('DONA tá analisando as fotos...');
     setBusy(true);
     try {
       const base64s = await Promise.all(files.map(f => fileToBase64(f)));
       const previewUrl = URL.createObjectURL(files[0]);
-      const caption = 'Analisa a execução desse exercício nessas fotos (momentos diferentes do movimento) e me dá dicas de melhoria — sempre como sugestão, não como prescrição.';
+      const caption = 'Aqui estão algumas fotos — pode ser comida/refeição ou a execução de um exercício em momentos diferentes. Analisa o que fizer mais sentido pelo que você está vendo e me ajuda (calorias, se for comida; dicas de execução, se for exercício).';
       const images = base64s.map((b64, i) => ({ data: b64, mimeType: files[i].type || 'image/jpeg' }));
       setBusy(false);
-      runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, images);
+      runDona({ id: Date.now(), from: 'user', text: caption, displayText: '🖼️ Fotos enviadas', image: previewUrl }, caption, images);
     } catch (err) {
       setBusy(false);
       const finalMsgs = [...messages, { id: Date.now(), from: 'dona', text: 'Não consegui ler essas fotos, tenta de novo.' }];
@@ -698,7 +738,7 @@ function App() {
       const caption = 'Analisa a execução desse exercício nesses quadros e me dá dicas de melhoria — sempre como sugestão, não como prescrição.';
       const images = frames.map(f => ({ data: f, mimeType: 'image/jpeg' }));
       setBusy(false);
-      runDona({ id: Date.now(), from: 'user', text: caption, image: previewUrl }, caption, images);
+      runDona({ id: Date.now(), from: 'user', text: caption, displayText: '🎥 Vídeo enviado', image: previewUrl }, caption, images);
     } catch (err) {
       console.error('[video] handleVideo falhou:', err.name, err.message, err.stack);
       setBusy(false);
@@ -1094,10 +1134,18 @@ function App() {
             <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
               {messages.map(m => (
                 <div key={m.id} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
-                  <div style={{ maxWidth: '80%', background: m.from === 'user' ? C.emeraldDim : C.card, color: C.text, border: m.from === 'dona' ? `1px solid ${C.border}` : 'none', borderRadius: 16, padding: '10px 16px', fontSize: 14 }}>
-                    {m.image && <img src={m.image} style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, marginBottom: 8, objectFit: 'cover' }} />}
-                    {m.text}
-                  </div>
+                  {m.image ? (
+                    <div style={{ maxWidth: '80%', background: m.from === 'user' ? C.emeraldDim : C.card, border: m.from === 'dona' ? `1px solid ${C.border}` : 'none', borderRadius: 16, overflow: 'hidden' }}>
+                      <img src={m.image} style={{ display: 'block', width: '100%', maxHeight: 220, objectFit: 'cover' }} />
+                      <p style={{ margin: 0, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: m.from === 'user' ? 'rgba(248,250,252,0.9)' : C.dim }}>
+                        {m.displayText || (m.from === 'user' ? '📷 Foto enviada' : '')}
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ maxWidth: '80%', background: m.from === 'user' ? C.emeraldDim : C.card, color: C.text, border: m.from === 'dona' ? `1px solid ${C.border}` : 'none', borderRadius: 16, padding: '10px 16px', fontSize: 14 }}>
+                      {m.from === 'dona' ? renderRichText(m.text) : m.text}
+                    </div>
+                  )}
                 </div>
               ))}
               {busy && <div style={{ fontSize: 11, color: C.dim }}>{busyLabel}</div>}

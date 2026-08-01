@@ -82,7 +82,7 @@ function logEvent(userId, userName, eventType, payload) {
 // A função que fala com a DONA agora roda no Supabase (mais folga de uso que a Netlify).
 // Depois de publicar a função lá, troque essa URL pela do seu projeto:
 // https://SEU-PROJETO.supabase.co/functions/v1/dona-edge-function
-const DONA_ENDPOINT = 'https://jpotuylypnjqblvwnrfn.supabase.co/functions/v1/dona-edge-function';
+const DONA_ENDPOINT = 'COLE_AQUI_A_URL_DA_SUA_FUNCAO_NO_SUPABASE';
 
 async function askDona(history, text, images, profileSummary) {
   const controller = new AbortController();
@@ -116,7 +116,9 @@ function buildProfileSummary(profile, daily) {
     cal ? `Objetivo: ${cal.goalLabel}` : null,
     cal ? `Meta calórica diária calculada: ${cal.target} kcal` : null,
     `Meta de água diária: ${(waterGoal / 1000).toFixed(1)}L`,
+    profile.trains ? `Treina: ${(WORKOUT_TYPES[profile.workoutType] || {}).label || profile.workoutType}${profile.workoutTime ? `, geralmente às ${profile.workoutTime}` : ''}` : 'Ainda não tem rotina de treino definida',
     daily && daily.sleepHours ? `Sono relatado hoje: ${daily.sleepHours}h` : null,
+    daily && daily.workoutKcal ? `Estimativa de kcal queimadas no treino de hoje: ${daily.workoutKcal}` : null,
   ].filter(Boolean);
   return parts.join(' | ');
 }
@@ -328,6 +330,26 @@ function computeWaterGoalMl(weight) {
   return Math.round((w * 35) / 50) * 50; // arredonda pra múltiplo de 50ml
 }
 
+// Valores de MET (Compêndio de Atividades Físicas, referência científica padrão)
+const WORKOUT_TYPES = {
+  caminhada: { label: 'Caminhada', met: 3.8 },
+  corrida: { label: 'Corrida', met: 9 },
+  musculacao: { label: 'Musculação', met: 5.5 },
+  ciclismo: { label: 'Ciclismo', met: 7.5 },
+  natacao: { label: 'Natação', met: 7 },
+  hiit: { label: 'HIIT / Funcional', met: 8 },
+  yoga: { label: 'Yoga / Pilates', met: 3 },
+  danca: { label: 'Dança', met: 5 },
+};
+
+// kcal = MET × peso(kg) × tempo(h) — fórmula padrão usada por calculadoras de gasto calórico
+function estimateWorkoutKcal(workoutType, minutes, weight) {
+  const met = (WORKOUT_TYPES[workoutType] || WORKOUT_TYPES.musculacao).met;
+  const w = parseFloat(weight) || 70;
+  const hours = (parseFloat(minutes) || 0) / 60;
+  return Math.round(met * w * hours);
+}
+
 function Ring({ pct, size = 108 }) {
   const stroke = 9, r = (size - stroke) / 2, c = 2 * Math.PI * r;
   return (
@@ -356,10 +378,12 @@ function Phone({ children }) {
 
 function App() {
   const [profile, setProfile] = useState(() => load('profile', null));
-  const [form, setForm] = useState({ name: '', weight: '', height: '', age: '', sex: 'F', goal: 'emagrecer', activityLevel: 'leve' });
+  const [form, setForm] = useState({ name: '', weight: '', height: '', age: '', sex: 'F', goal: 'emagrecer', activityLevel: 'leve', trains: 'sim', workoutTime: '', workoutType: 'musculacao' });
   const [tab, setTab] = useState('home');
   const [daily, setDaily] = useState(() => load(`daily:${todayKey()}`, { waterMl: 0, sleepHours: null }));
   const [containerMl, setContainerMl] = useState(() => load('container_ml', 200));
+  const [workoutMinutes, setWorkoutMinutes] = useState('');
+  const [workoutTypeInput, setWorkoutTypeInput] = useState(() => profile ? (profile.workoutType || 'musculacao') : 'musculacao');
   const [streak, setStreak] = useState(0);
   const [messages, setMessages] = useState(() => load('chat_ui', [
     { id: 1, from: 'dona', text: 'Bom dia. Dormiu quanto essa noite? E manda uma foto do seu prato ou da geladeira quando quiser, eu leio.' },
@@ -432,12 +456,13 @@ function App() {
     const p = {
       id, name: form.name.trim(), weight: form.weight, height: form.height, age: form.age, sex: form.sex,
       goal: form.goal, activityLevel: form.activityLevel,
+      trains: form.trains === 'sim', workoutTime: form.trains === 'sim' ? form.workoutTime : '', workoutType: form.trains === 'sim' ? form.workoutType : '',
       email: googleProfile ? googleProfile.email : undefined,
       picture: googleProfile ? googleProfile.picture : undefined,
     };
     save('profile', p);
     setProfile(p);
-    logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, goal: p.goal, activityLevel: p.activityLevel, viaGoogle: !!googleProfile });
+    logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, goal: p.goal, activityLevel: p.activityLevel, trains: p.trains, viaGoogle: !!googleProfile });
   };
 
   const updateDaily = (patch) => {
@@ -632,6 +657,21 @@ function App() {
               <option value="moderado">Atividade: moderado (3-5x/semana)</option>
               <option value="intenso">Atividade: intenso (6-7x/semana)</option>
             </select>
+            <select value={form.trains} onChange={e => setForm({...form, trains: e.target.value})} style={inputStyle}>
+              <option value="sim">Costumo treinar, sim</option>
+              <option value="nao">Não treino ainda</option>
+            </select>
+            {form.trains === 'sim' && (
+              <React.Fragment>
+                <select value={form.workoutType} onChange={e => setForm({...form, workoutType: e.target.value})} style={inputStyle}>
+                  {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>Treino: {w.label}</option>)}
+                </select>
+                <div>
+                  <p style={{ fontSize: 10, color: C.dim, margin: '0 0 4px' }}>Horário que costuma treinar</p>
+                  <input type="time" value={form.workoutTime} onChange={e => setForm({...form, workoutTime: e.target.value})} style={inputStyle} />
+                </div>
+              </React.Fragment>
+            )}
             <button onClick={completeOnboarding} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>Começar</button>
           </div>
           )}
@@ -743,6 +783,27 @@ function App() {
               );
             })()}
 
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 16 }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: '0 0 10px' }}>Registrar treino de hoje</p>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <select value={workoutTypeInput} onChange={e => setWorkoutTypeInput(e.target.value)} style={{ ...inputStyle, padding: '10px 12px', fontSize: 12 }}>
+                  {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>{w.label}</option>)}
+                </select>
+                <input type="number" placeholder="min" value={workoutMinutes} onChange={e => setWorkoutMinutes(e.target.value)} style={{ ...inputStyle, padding: '10px 12px', fontSize: 12, flex: '0 0 70px' }} />
+              </div>
+              <button
+                onClick={() => updateDaily({ workoutKcal: estimateWorkoutKcal(workoutTypeInput, workoutMinutes, profile.weight), workoutMinutesLogged: workoutMinutes })}
+                style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '8px', fontSize: 12, fontWeight: 700 }}
+              >
+                Calcular calorias queimadas
+              </button>
+              {!!daily.workoutKcal && (
+                <p style={{ fontSize: 12, color: C.emerald, margin: '10px 0 0', textAlign: 'center' }}>
+                  ≈ {daily.workoutKcal} kcal queimadas (estimativa)
+                </p>
+              )}
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <button onClick={askCardapio} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, textAlign: 'left', opacity: busy ? 0.5 : 1 }}>
                 <p style={{ fontSize: 18, margin: '0 0 6px' }}>🍽️</p>
@@ -803,6 +864,18 @@ function App() {
                 </div>
               );
             })()}
+
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+              <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>treino</p>
+              {profile.trains ? (
+                <React.Fragment>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: '0 0 4px' }}>{(WORKOUT_TYPES[profile.workoutType] || {}).label || profile.workoutType}</p>
+                  {profile.workoutTime && <p style={{ fontSize: 11, color: C.dim, margin: 0 }}>geralmente às {profile.workoutTime}</p>}
+                </React.Fragment>
+              ) : (
+                <p style={{ fontSize: 13, color: C.dim, margin: '4px 0 0' }}>Ainda sem rotina de treino definida</p>
+              )}
+            </div>
 
             <button onClick={resetProfile} style={{ width: '100%', background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px', color: C.dim, fontSize: 12, fontWeight: 700, marginTop: 8 }}>
               Trocar perfil / sair

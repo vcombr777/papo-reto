@@ -2,13 +2,13 @@
   "name": "Papo Reto",
   "short_name": "Papo Reto",
   "description": "Sua mentora de resultados: dieta, treino e constância, sem enrolação.",
-  "start_url": "/",
+  "start_url": "/papo-reto/",
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#020617",
   "orientation": "portrait",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/papo-reto/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/papo-reto/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

@@ -1418,12 +1418,12 @@ function App() {
                 )}
                 <div style={{ marginTop: 'auto', display: 'flex', gap: 4 }}>
                   <select value={workoutTypeInput} onChange={e => setWorkoutTypeInput(e.target.value)}
-                    style={{ ...inputStyle, padding: '7px 6px', fontSize: 11, borderRadius: 0 }}>
+                    style={{ ...inputStyle, padding: '7px 6px', borderRadius: 0 }}>
                     {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>{w.label}</option>)}
                   </select>
                   <input type="number" inputMode="numeric" placeholder="min" value={workoutMinutes}
                     onChange={e => setWorkoutMinutes(e.target.value)}
-                    style={{ ...inputStyle, padding: '7px 6px', fontSize: 11, borderRadius: 0, flex: '0 0 46px' }} />
+                    style={{ ...inputStyle, padding: '7px 6px', borderRadius: 0, flex: '0 0 56px' }} />
                 </div>
                 <button
                   onClick={() => {
@@ -1761,13 +1761,13 @@ function App() {
 
 const selectStyle = {
   background: '#151513', border: '1px solid rgba(255,255,255,.13)', borderRadius: 0,
-  padding: '13px 32px 13px 14px', color: '#F5F4F0', fontSize: 14, width: '100%',
+  padding: '13px 32px 13px 14px', color: '#F5F4F0', fontSize: 16, width: '100%',
   outline: 'none', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
   backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23F0C21F'/></svg>\")",
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 13px center',
 };
 
-const inputStyle = { background: '#151513', border: '1px solid rgba(255,255,255,.13)', borderRadius: 0, padding: '13px 14px', color: '#F5F4F0', fontSize: 14, flex: 1, minWidth: 0, outline: 'none' };
+const inputStyle = { background: '#151513', border: '1px solid rgba(255,255,255,.13)', borderRadius: 0, padding: '13px 14px', color: '#F5F4F0', fontSize: 16, flex: 1, minWidth: 0, width: '100%', outline: 'none' };
 
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
 </script>

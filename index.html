@@ -9,15 +9,21 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Papo Reto" />
-<meta name="theme-color" content="#020617" />
+<meta name="theme-color" content="#0B0B0B" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
 <style>
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #000; font-family: -apple-system, system-ui, sans-serif; }
+  html, body {
+    margin: 0; height: 100%; background: #000;
+    font-family: 'Space Grotesk', -apple-system, system-ui, sans-serif;
+  }
   .app-outer { background: #000; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
   .phone-shell {
     width: 100%;
     height: 100dvh;
-    background: #020617;
+    background: #0B0B0B;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -25,21 +31,23 @@
   @media (min-width: 480px) {
     .app-outer { padding: 24px 0; }
     .phone-shell {
-      width: 380px;
-      height: 780px;
+      width: 390px;
+      height: 800px;
       border-radius: 40px;
-      border: 10px solid #111;
+      border: 10px solid #1a1a1a;
       box-shadow: 0 30px 80px rgba(0,0,0,0.6);
     }
   }
+  .display { font-family: 'Anton', sans-serif; text-transform: uppercase; letter-spacing: .01em; font-weight: 400; }
+  .mono-label { font-size: 10px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; }
+  input, select, textarea, button { font-family: 'Space Grotesk', sans-serif; }
+  input::placeholder { color: #6B6862; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
 </style>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<!-- DEBUG TEMPORÁRIO: mostra o console de erros na tela do celular. Remover depois de resolver o vídeo. -->
-<script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-<script>eruda.init();</script>
 </head>
 <body>
 <div id="root"></div>
@@ -49,19 +57,30 @@ const { useState, useEffect, useRef } = React;
 
 // ====== CONFIGURE AQUI depois de criar sua conta no Supabase (veja README.md) ======
 const SUPABASE_URL = 'https://jpotuylypnjqblvwnrfn.supabase.co';
-const SUPABASE_ANON_KEY = 'COLE_AQUI_A_ANON_KEY_DO_SEU_PROJETO_SUPABASE';
+const SUPABASE_ANON_KEY = 'sb_publishable_mxqrRieAI59y3eu0-_1aIw_YxtFmnsn';
 // =====================================================================================
 
 // ====== CONFIGURE AQUI depois de criar seu Google Client ID (veja README.md) ======
-const GOOGLE_CLIENT_ID = 'COLE_AQUI_SEU_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '977709568814-i30j2suj885trhbh2g813mnlg3qc60r6.apps.googleusercontent.com';
 // =====================================================================================
 
 // Chave pública das notificações push (a privada fica só no Supabase, nunca aqui)
 const VAPID_PUBLIC_KEY = 'BLmNewvYwZsNWbaPcO0oM-CdW_mR0wxE-ZTo7Su-OWKhZfSTlLGA0sZTYwlukHBkX9L3coXKhd76yrlyPfjyOuc';
 
+// Paleta "Sinal": preto de placa + amarelo de sinalização industrial.
+// Os nomes emerald/emeraldDim são herdados do visual antigo — hoje apontam pro amarelo.
 const C = {
-  bg: '#020617', card: '#0F172A', cardAlt: '#111B32', border: '#1E293B',
-  emerald: '#22C55E', emeraldDim: '#15803D', amber: '#F59E0B', text: '#F8FAFC', dim: '#94A3B8',
+  bg: '#0B0B0B',
+  card: '#151513',
+  cardAlt: '#1F1E1B',
+  border: 'rgba(255,255,255,.13)',
+  emerald: '#F0C21F',      // amarelo sinalização (destaque principal)
+  emeraldDim: '#3A3208',   // amarelo apagado, pra fundos discretos
+  amber: '#F0C21F',
+  red: '#E2593F',
+  text: '#F5F4F0',
+  dim: '#8C8A84',
+  onYellow: '#0B0B0B',     // texto que fica em cima do amarelo
 };
 
 function todayKey() { return new Date().toISOString().slice(0, 10); }
@@ -394,6 +413,21 @@ function computeCalorieBreakdown(profile) {
 }
 
 // Referência clássica de hidratação: ~35ml de água por kg de peso corporal
+// Nomeia a refeição pelo horário, pro extrato ficar legível sem o usuário digitar nada
+function mealLabelForNow(d = new Date()) {
+  const h = d.getHours();
+  if (h < 10) return 'Café da manhã';
+  if (h < 12) return 'Lanche da manhã';
+  if (h < 15) return 'Almoço';
+  if (h < 18) return 'Lanche da tarde';
+  if (h < 22) return 'Jantar';
+  return 'Ceia';
+}
+
+function timeLabel(d = new Date()) {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function computeWaterGoalMl(weight) {
   const w = parseFloat(weight);
   if (!w) return 2000;
@@ -460,17 +494,6 @@ function renderRichText(text) {
   return blocks;
 }
 
-function Ring({ pct, size = 108, color }) {
-  const stroke = 9, r = (size - stroke) / 2, c = 2 * Math.PI * r;
-  return (
-    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-      <circle cx={size/2} cy={size/2} r={r} stroke={C.border} strokeWidth={stroke} fill="none" />
-      <circle cx={size/2} cy={size/2} r={r} stroke={color || C.emerald} strokeWidth={stroke} fill="none"
-        strokeDasharray={c} strokeDashoffset={c - c * Math.min(1, pct)} strokeLinecap="round" style={{ transition: 'stroke 0.3s' }} />
-    </svg>
-  );
-}
-
 function load(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch (e) { return fallback; }
 }
@@ -506,7 +529,6 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('DONA tá digitando...');
   const [input, setInput] = useState('');
-  const [showBreakdown, setShowBreakdown] = useState(true);
   const [galleryGroup, setGalleryGroup] = useState('Todos');
   const [expandedExercise, setExpandedExercise] = useState(null);
   const scrollRef = useRef(null);
@@ -631,6 +653,24 @@ function App() {
     }
   };
 
+  // Recalcula os totais a partir dos lançamentos do extrato — a fonte da verdade
+  const recalcFromEntries = (entries) => {
+    const consumed = entries.filter(e => e.kcal < 0).reduce((s, e) => s - e.kcal, 0);
+    const workoutKcal = entries.filter(e => e.kcal > 0).reduce((s, e) => s + e.kcal, 0);
+    return { caloriesConsumed: consumed, workoutKcal };
+  };
+
+  const addLedgerEntry = ({ label, kcal, source, meta }) => {
+    const entry = { id: Date.now() + Math.random(), label, kcal, source, meta, time: timeLabel() };
+    const entries = [...(daily.entries || []), entry];
+    updateDaily({ entries, ...recalcFromEntries(entries) });
+  };
+
+  const removeLedgerEntry = (id) => {
+    const entries = (daily.entries || []).filter(e => e.id !== id);
+    updateDaily({ entries, ...recalcFromEntries(entries) });
+  };
+
   const setContainerSize = (ml) => {
     setContainerMl(ml);
     save('container_ml', ml);
@@ -650,9 +690,8 @@ function App() {
       if (kcalMatch) {
         const kcal = parseInt(kcalMatch[1], 10);
         if (kcal > 0) {
-          const newTotal = (daily.caloriesConsumed || 0) + kcal;
-          updateDaily({ caloriesConsumed: newTotal });
-          reply += `\n\n✅ +${kcal} kcal adicionadas automaticamente ao seu painel.`;
+          addLedgerEntry({ label: mealLabelForNow(), kcal: -kcal, source: 'foto' });
+          reply += `\n\n**+${kcal} kcal** lançadas no seu extrato.`;
         }
       }
 
@@ -750,69 +789,98 @@ function App() {
   if (!profile) {
     return (
       <Phone>
-        <div style={{ overflowY: 'auto', padding: '32px 24px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ overflowY: 'auto', padding: '30px 22px 26px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+
           {onboardStep === 'auth' && (
-            <React.Fragment>
-              <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald }}>PAPO RETO</p>
-              <h1 style={{ fontSize: 24, fontWeight: 900, color: C.text, margin: '4px 0' }}>Chega de enrolação.</h1>
-              <p style={{ fontSize: 12, color: C.dim, marginBottom: 24 }}>Entra pra DONA começar a te acompanhar.</p>
-              {googleReady ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '20px 0' }}>
-                  <div ref={googleBtnRef}></div>
-                  <p style={{ fontSize: 10, color: C.dim }}>Entre com o Google pra criar seu perfil</p>
-                </div>
-              ) : (
-                <button onClick={() => setOnboardStep('welcome')} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>
-                  Vamos começar
-                </button>
-              )}
-            </React.Fragment>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Papo Reto</p>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <h1 className="display" style={{ fontSize: 44, color: C.text, margin: '0 0 18px', lineHeight: .95 }}>
+                  Chega de<br /><span style={{ color: C.emerald }}>enrolação</span>.
+                </h1>
+                <p style={{ fontSize: 14.5, color: C.dim, lineHeight: 1.6, margin: '0 0 30px', maxWidth: 300 }}>
+                  Sem dieta milagrosa. Sem app te dando parabéns por beber água. Você registra, eu analiso, a gente ajusta.
+                </p>
+                {googleReady ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12 }}>
+                    <div ref={googleBtnRef}></div>
+                    <p className="mono-label" style={{ color: C.dim, margin: 0 }}>Entre com o Google pra começar</p>
+                  </div>
+                ) : (
+                  <button onClick={() => setOnboardStep('welcome')} className="display"
+                    style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '17px', fontSize: 17, letterSpacing: '.06em' }}>
+                    Vamos começar
+                  </button>
+                )}
+              </div>
+            </div>
           )}
 
           {onboardStep === 'welcome' && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 16 }}>
-              <div style={{ width: 64, height: 64, borderRadius: 32, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 26 }}>D</div>
-              <div>
-                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>OI, EU SOU A</p>
-                <h1 style={{ fontSize: 26, fontWeight: 900, color: C.text, margin: '4px 0' }}>DONA</h1>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 26 }}>
+                <span style={{ width: 30, height: 30, borderRadius: 15, border: `2px solid ${C.emerald}`, display: 'inline-block', position: 'relative', flexShrink: 0 }}>
+                  <span style={{ position: 'absolute', inset: 6, borderRadius: 8, background: C.emerald }} />
+                </span>
+                <span className="mono-label" style={{ color: C.emerald }}>Oi. Eu sou a DONA.</span>
               </div>
-              <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, maxWidth: 280 }}>
-                Sua mentora de resultados aqui no Papo Reto. Sem enrolação: eu calculo sua meta de calorias e água,
-                te dou dicas de cardápio e treino, analiso fotos de comida e de execução de exercício — e te ajudo
-                a manter a constância nos dias difíceis também.
+
+              <h1 className="display" style={{ fontSize: 38, color: C.text, margin: '0 0 18px', lineHeight: .97 }}>
+                Eu não vou te<br />elogiar <span style={{ color: C.emerald }}>por pouco</span>.
+              </h1>
+
+              <p style={{ fontSize: 14.5, color: C.dim, lineHeight: 1.6, margin: '0 0 6px' }}>
+                Sou sua mentora — não sou médica, nutricionista nem personal. Sou a voz que lembra do combinado quando ninguém está olhando.
               </p>
-              <p style={{ fontSize: 11, color: C.dim, maxWidth: 280 }}>
-                Não sou nutricionista nem educadora física — sou sua parceira de rotina, sempre te orientando pro
-                caminho certo.
-              </p>
-              <button onClick={() => setOnboardStep('form')} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px 32px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>
-                Continuar
-              </button>
+
+              <div style={{ margin: '24px 0 0' }}>
+                {[
+                  'Manda a foto do prato. Eu digo o que tem ali dentro.',
+                  'Treinou? Seu saldo do dia sobe na hora.',
+                  'Sumiu três dias? Eu vou perguntar por quê.',
+                ].map((t, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 14, padding: '14px 0', borderTop: `1px solid ${C.border}` }}>
+                    <span className="mono-label" style={{ color: C.emerald, flexShrink: 0, paddingTop: 2 }}>0{i + 1}</span>
+                    <span style={{ fontSize: 14, color: C.text, lineHeight: 1.45 }}>{t}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+                <p style={{ fontSize: 11, color: C.dim, lineHeight: 1.5, margin: '0 0 14px' }}>
+                  Orientação prática, não prescrição médica. Condição de saúde ou uso de medicação? Fale com seu médico antes.
+                </p>
+                <button onClick={() => setOnboardStep('form')} className="display"
+                  style={{ width: '100%', background: C.emerald, color: C.onYellow, border: 'none', padding: '17px', fontSize: 17, letterSpacing: '.06em' }}>
+                  Combinado. Bora.
+                </button>
+              </div>
             </div>
           )}
 
           {onboardStep === 'form' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>ÚLTIMO PASSO</p>
-            <h1 style={{ fontSize: 20, fontWeight: 900, color: C.text, margin: '0 0 4px' }}>Seus dados</h1>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Último passo</p>
+            <h1 className="display" style={{ fontSize: 30, color: C.text, margin: '2px 0 12px', lineHeight: 1 }}>Seus números</h1>
+
             {googleProfile && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 10 }}>
-                <img src={googleProfile.picture} style={{ width: 32, height: 32, borderRadius: 16 }} />
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>{googleProfile.name}</p>
-                  <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>{googleProfile.email}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 11, border: `1px solid ${C.border}`, padding: 11, marginBottom: 4 }}>
+                <img src={googleProfile.picture} style={{ width: 34, height: 34, borderRadius: 17 }} />
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{googleProfile.name}</p>
+                  <p style={{ fontSize: 11, color: C.dim, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{googleProfile.email}</p>
                 </div>
               </div>
             )}
             {!googleProfile && (
               <input placeholder="Seu nome" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={inputStyle} />
             )}
-            <div style={{ display: 'flex', gap: 12 }}>
-              <input placeholder="Peso (kg)" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} style={inputStyle} />
-              <input placeholder="Altura (cm)" value={form.height} onChange={e => setForm({...form, height: e.target.value})} style={inputStyle} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input placeholder="Peso (kg)" inputMode="numeric" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} style={inputStyle} />
+              <input placeholder="Altura (cm)" inputMode="numeric" value={form.height} onChange={e => setForm({...form, height: e.target.value})} style={inputStyle} />
             </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <input placeholder="Idade" value={form.age} onChange={e => setForm({...form, age: e.target.value})} style={inputStyle} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input placeholder="Idade" inputMode="numeric" value={form.age} onChange={e => setForm({...form, age: e.target.value})} style={inputStyle} />
               <select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}>
                 <option value="F">Feminino</option>
                 <option value="M">Masculino</option>
@@ -839,12 +907,15 @@ function App() {
                   {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>Treino: {w.label}</option>)}
                 </select>
                 <div>
-                  <p style={{ fontSize: 10, color: C.dim, margin: '0 0 4px' }}>Horário que costuma treinar</p>
+                  <p className="mono-label" style={{ color: C.dim, margin: '0 0 6px' }}>Horário que costuma treinar</p>
                   <input type="time" value={form.workoutTime} onChange={e => setForm({...form, workoutTime: e.target.value})} style={inputStyle} />
                 </div>
               </React.Fragment>
             )}
-            <button onClick={completeOnboarding} style={{ background: C.emerald, color: '#022c1a', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 14, marginTop: 8 }}>Começar</button>
+            <button onClick={completeOnboarding} className="display"
+              style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '17px', fontSize: 17, letterSpacing: '.06em', marginTop: 8 }}>
+              Entendi. Vamos.
+            </button>
           </div>
           )}
         </div>
@@ -855,368 +926,519 @@ function App() {
   return (
     <Phone>
       <div style={{ flex: 1, overflow: 'hidden' }}>
-        {tab === 'home' && (
-          <div style={{ height: '100%', overflowY: 'auto', padding: '0 20px 16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '8px 0 20px' }}>
+        {tab === 'home' && (() => {
+          const cal = computeCalorieBreakdown(profile);
+          const entries = daily.entries || [];
+          const consumed = daily.caloriesConsumed || 0;
+          const workoutBonus = daily.workoutKcal || 0;
+          const workoutCountsForMeta = profile.goal !== 'emagrecer';
+          const target = cal ? cal.target + (workoutCountsForMeta ? workoutBonus : 0) : 0;
+          const left = target - consumed;
+          const pct = target ? Math.min(1, consumed / target) : 0;
+          const over = left < 0;
+          const near = !over && pct >= 0.85;
+          const barColor = over ? C.red : C.emerald;
+
+          const waterGoalMl = computeWaterGoalMl(profile.weight);
+          const waterMl = daily.waterMl || 0;
+          const waterSegments = 12;
+          const waterFilled = Math.round(Math.min(1, waterMl / waterGoalMl) * waterSegments);
+
+          const dateStr = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+          const dateCap = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+
+          return (
+          <div style={{ height: '100%', overflowY: 'auto', padding: '18px 20px 20px' }}>
+
+            {/* Cabeçalho: data, saudação e sequência */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
               <div>
-                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>PAPO RETO</p>
-                <h1 style={{ fontSize: 22, fontWeight: 900, color: C.text, margin: 0 }}>Bora, {profile.name.split(' ')[0]}.</h1>
+                <p className="display" style={{ fontSize: 21, color: C.text, margin: 0, lineHeight: 1 }}>{dateCap}</p>
+                <p style={{ fontSize: 13, color: C.dim, margin: '6px 0 0' }}>Bom dia, {profile.name.split(' ')[0]}.</p>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <p style={{ fontSize: 22, fontWeight: 900, color: C.text, margin: 0 }}>{streak}</p>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, margin: 0 }}>dias seguidos</p>
+              <div style={{ textAlign: 'right', flexShrink: 0, paddingLeft: 12 }}>
+                <p className="display" style={{ fontSize: 24, color: C.emerald, margin: 0, lineHeight: 1 }}>{streak}</p>
+                <p className="mono-label" style={{ color: C.dim, margin: '4px 0 0' }}>dias seguidos</p>
               </div>
             </div>
 
-            <button onClick={() => setTab('chat')} style={{ width: '100%', textAlign: 'left', background: `linear-gradient(135deg, ${C.emeraldDim}, ${C.card})`, border: `1px solid ${C.emerald}`, borderRadius: 20, padding: 20, display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 24, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 20, flexShrink: 0 }}>D</div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>Fala com a DONA</p>
-                <p style={{ fontSize: 12, color: 'rgba(248,250,252,0.85)', margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {messages.length ? messages[messages.length - 1].text : 'Toque pra começar a conversa'}
-                </p>
+            {/* Card da DONA em destaque, bloco chapado amarelo */}
+            <button onClick={() => setTab('chat')} style={{ width: '100%', textAlign: 'left', background: C.emerald, border: 'none', padding: '16px 18px 14px', marginBottom: 22, display: 'block' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ width: 16, height: 16, borderRadius: 8, border: `2px solid ${C.onYellow}`, display: 'inline-block', position: 'relative', flexShrink: 0 }}>
+                  <span style={{ position: 'absolute', inset: 3, borderRadius: 4, background: C.onYellow }} />
+                </span>
+                <span className="mono-label" style={{ color: C.onYellow, fontWeight: 700 }}>DONA</span>
               </div>
-              <span style={{ color: C.text, fontSize: 18 }}>›</span>
+              <p style={{ fontSize: 14.5, lineHeight: 1.45, color: C.onYellow, margin: 0, fontWeight: 500 }}>
+                {messages.length && messages[messages.length - 1].from === 'dona'
+                  ? messages[messages.length - 1].text.replace(/\*\*/g, '').slice(0, 130) + (messages[messages.length - 1].text.length > 130 ? '…' : '')
+                  : 'Manda a foto do seu prato. Eu digo o que tem ali dentro.'}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(11,11,11,.25)' }}>
+                <span className="mono-label" style={{ color: C.onYellow, fontWeight: 700 }}>Responder pra DONA</span>
+                <span style={{ color: C.onYellow, fontSize: 15 }}>→</span>
+              </div>
             </button>
 
-            {(() => {
-              const cal = computeCalorieBreakdown(profile);
-              const waterGoalMl = computeWaterGoalMl(profile.weight);
-              const waterMl = daily.waterMl || 0;
-              const waterL = (waterMl / 1000).toFixed(1);
-              const goalL = (waterGoalMl / 1000).toFixed(1);
-              const waterPct = Math.min(1, waterMl / waterGoalMl);
-              const consumed = daily.caloriesConsumed || 0;
-              const workoutBonus = daily.workoutKcal || 0;
-              const workoutCountsForMeta = profile.goal !== 'emagrecer';
-              const adjustedTarget = cal ? cal.target + (workoutCountsForMeta ? workoutBonus : 0) : 0;
-              const eatenPct = cal ? Math.min(1, consumed / adjustedTarget) : 0;
-              const ringColor = eatenPct >= 1 ? '#EF4444' : eatenPct >= 0.85 ? C.amber : C.emerald;
-              return (
-                <React.Fragment>
-                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                      <div style={{ position: 'relative', width: 108, height: 108 }}>
-                        <Ring pct={eatenPct} color={ringColor} />
-                        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                          <span style={{ fontSize: 16, fontWeight: 900, color: eatenPct >= 1 ? '#EF4444' : C.text }}>{consumed}</span>
-                          <span style={{ fontSize: 9, fontWeight: 600, color: C.dim }}>de {cal ? adjustedTarget : '—'} kcal</span>
-                        </div>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: 14, fontWeight: 600, color: C.text, margin: 0 }}>{cal ? cal.goalLabel : 'Complete seu perfil'}</p>
-                        <p style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>
-                          {workoutBonus > 0
-                            ? (workoutCountsForMeta
-                                ? `Meta base ${cal ? cal.target : '—'} + ${workoutBonus} do treino de hoje.`
-                                : `${workoutBonus} kcal queimadas no treino — mantidas fora da meta pra preservar o déficit.`)
-                            : 'Manda fotos das refeições, a DONA estima a caloria.'}
-                        </p>
-                        {cal && (
-                          <button onClick={() => setShowBreakdown(s => !s)} style={{ background: 'none', border: 'none', color: C.emerald, fontSize: 11, fontWeight: 700, padding: 0, marginTop: 6 }}>
-                            {showBreakdown ? 'Esconder a conta ▲' : 'Ver a conta ▼'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {cal && showBreakdown && (
-                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}`, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                        <div style={{ background: C.cardAlt, borderRadius: 8, padding: 8 }}>
-                          <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>TMB (basal)</p>
-                          <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{cal.bmr} kcal</p>
-                        </div>
-                        <div style={{ background: C.cardAlt, borderRadius: 8, padding: 8 }}>
-                          <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>+ atividade ({cal.activityLabel.split(' ')[0]})</p>
-                          <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{cal.tdee} kcal</p>
-                        </div>
-                        <div style={{ background: C.cardAlt, borderRadius: 8, padding: 8, gridColumn: '1 / -1' }}>
-                          <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>Ajuste pro objetivo ({cal.goalLabel})</p>
-                          <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{cal.adjustKcal >= 0 ? '+' : ''}{cal.adjustKcal} kcal → meta final {cal.target} kcal</p>
-                        </div>
-                      </div>
-                    )}
-                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input
-                        type="number"
-                        placeholder="kcal que comeu agora"
-                        value={mealKcalInput}
-                        onChange={e => setMealKcalInput(e.target.value)}
-                        style={{ ...inputStyle, padding: '10px 12px', fontSize: 12 }}
-                      />
-                      <button
-                        onClick={() => {
-                          const add = parseInt(mealKcalInput) || 0;
-                          if (add > 0) updateDaily({ caloriesConsumed: consumed + add });
-                          setMealKcalInput('');
-                        }}
-                        style={{ background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '10px 16px', fontSize: 12, fontWeight: 700, flexShrink: 0 }}
-                      >
-                        + registrar
-                      </button>
-                    </div>
-                    {consumed > 0 && (
-                      <button onClick={() => updateDaily({ caloriesConsumed: 0 })} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 10, padding: 0, marginTop: 8, textDecoration: 'underline' }}>
-                        zerar registro de hoje
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
-                      <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{waterL}L / {goalL}L</p>
-                      <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 6 }}>água hoje</p>
-                      <div style={{ height: 4, borderRadius: 2, background: C.cardAlt, marginBottom: 8, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${waterPct * 100}%`, background: C.emerald }} />
-                      </div>
-                      <button onClick={() => updateDaily({ waterMl: waterMl + containerMl })} style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '6px', fontSize: 11, fontWeight: 700, marginBottom: 6 }}>
-                        + {containerMl}ml
-                      </button>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {[200, 500, 750].map(ml => (
-                          <button key={ml} onClick={() => setContainerSize(ml)} style={{ flex: 1, background: containerMl === ml ? C.emerald : C.cardAlt, color: containerMl === ml ? '#022c1a' : C.dim, border: 'none', borderRadius: 6, padding: '4px', fontSize: 9, fontWeight: 700 }}>
-                            {ml >= 1000 ? (ml/1000)+'L' : ml+'ml'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16 }}>
-                      <p style={{ fontSize: 18, fontWeight: 900, color: C.text, margin: '8px 0 0' }}>{daily.sleepHours ?? '—'}h</p>
-                      <p style={{ fontSize: 10, fontWeight: 600, color: C.dim, marginBottom: 8 }}>sono essa noite</p>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {[5,7,9].map(h => <button key={h} onClick={() => updateDaily({ sleepHours: h })} style={{ flex: 1, background: C.cardAlt, color: C.dim, border: 'none', borderRadius: 6, padding: '4px', fontSize: 10, fontWeight: 700 }}>{h}h</button>)}
-                      </div>
-                    </div>
-                  </div>
-                </React.Fragment>
-              );
-            })()}
-
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 16 }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: '0 0 10px' }}>Registrar treino de hoje</p>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                <select value={workoutTypeInput} onChange={e => setWorkoutTypeInput(e.target.value)} style={{ ...inputStyle, padding: '10px 12px', fontSize: 12 }}>
-                  {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>{w.label}</option>)}
-                </select>
-                <input type="number" placeholder="min" value={workoutMinutes} onChange={e => setWorkoutMinutes(e.target.value)} style={{ ...inputStyle, padding: '10px 12px', fontSize: 12, flex: '0 0 70px' }} />
-              </div>
-              <button
-                onClick={() => updateDaily({ workoutKcal: estimateWorkoutKcal(workoutTypeInput, workoutMinutes, profile.weight), workoutMinutesLogged: workoutMinutes })}
-                style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 8, padding: '8px', fontSize: 12, fontWeight: 700 }}
-              >
-                Calcular calorias queimadas
-              </button>
-              {!!daily.workoutKcal && (
-                <p style={{ fontSize: 12, color: C.emerald, margin: '10px 0 0', textAlign: 'center' }}>
-                  ≈ {daily.workoutKcal} kcal queimadas (estimativa)
-                </p>
-              )}
+            {/* Saldo do dia */}
+            <p className="mono-label" style={{ color: C.dim, margin: '0 0 8px' }}>Saldo do dia</p>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span className="display" style={{ fontSize: 52, color: over ? C.red : C.text, lineHeight: .9 }}>
+                {over ? '+' + Math.abs(left) : left}
+              </span>
+              <span style={{ fontSize: 13, color: C.dim }}>{over ? 'kcal acima da meta' : 'kcal restantes'}</span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <button onClick={askCardapio} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, textAlign: 'left', opacity: busy ? 0.5 : 1 }}>
-                <p style={{ fontSize: 18, margin: '0 0 6px' }}>🍽️</p>
-                <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>Dicas de cardápio</p>
+            <div style={{ display: 'flex', height: 6, background: 'rgba(255,255,255,.10)', margin: '14px 0 10px' }}>
+              <div style={{ width: `${pct * 100}%`, background: barColor }} />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span className="mono-label" style={{ color: C.dim }}>Meta {cal ? cal.target.toLocaleString('pt-BR') : '—'}</span>
+              <span className="mono-label" style={{ color: C.dim }}>Consumido {consumed.toLocaleString('pt-BR')}</span>
+              {workoutBonus > 0 && (
+                <span className="mono-label" style={{ color: C.emerald }}>Treino +{workoutBonus}</span>
+              )}
+            </div>
+            <p style={{ fontSize: 12, color: C.dim, margin: '10px 0 0', lineHeight: 1.5 }}>
+              {over
+                ? 'Estourou hoje. Não some amanhã por causa disso — é assim que a maioria desiste.'
+                : near
+                  ? 'Tá perto do limite. As próximas escolhas decidem o dia.'
+                  : workoutBonus > 0 && workoutCountsForMeta
+                    ? 'Seu orçamento sobe quando você treina. Gastou, ganhou.'
+                    : workoutBonus > 0
+                      ? 'Treino registrado, mas o saldo não sobe: seu objetivo é déficit.'
+                      : 'Registra o que comer que eu fecho a conta.'}
+            </p>
+
+            {/* Extrato do dia */}
+            <p className="mono-label" style={{ color: C.dim, margin: '26px 0 4px' }}>Extrato de hoje</p>
+            {entries.length === 0 ? (
+              <p style={{ fontSize: 13, color: C.dim, margin: '10px 0 0', lineHeight: 1.5 }}>
+                Nada lançado ainda. Manda a foto do que você comeu que eu lanço aqui.
+              </p>
+            ) : (
+              <div>
+                {entries.map(e => (
+                  <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 0', borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <span style={{ fontSize: 14.5, color: C.text, fontWeight: 500 }}>{e.label}</span>
+                        {e.source === 'foto' && (
+                          <span className="mono-label" style={{ color: C.emerald, border: `1px solid ${C.emerald}`, padding: '2px 5px', fontSize: 8.5 }}>por foto</span>
+                        )}
+                      </div>
+                      <span className="mono-label" style={{ color: C.dim, display: 'block', marginTop: 4 }}>
+                        {e.time}{e.meta ? ` · ${e.meta}` : ''}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                      <span className="display" style={{ fontSize: 18, color: e.kcal > 0 ? C.emerald : C.text }}>
+                        {e.kcal > 0 ? '+' : '−'}{Math.abs(e.kcal)}
+                      </span>
+                      <button onClick={() => removeLedgerEntry(e.id)} style={{ background: 'none', border: 'none', color: C.dim, fontSize: 16, padding: '0 2px', lineHeight: 1 }}>×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Lançamento manual */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <input
+                type="number"
+                inputMode="numeric"
+                placeholder="Lançar kcal na mão"
+                value={mealKcalInput}
+                onChange={e => setMealKcalInput(e.target.value)}
+                style={{ ...inputStyle, padding: '11px 13px', fontSize: 13 }}
+              />
+              <button
+                onClick={() => {
+                  const add = parseInt(mealKcalInput) || 0;
+                  if (add > 0) addLedgerEntry({ label: mealLabelForNow(), kcal: -add, source: 'manual' });
+                  setMealKcalInput('');
+                }}
+                className="display"
+                style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '11px 18px', fontSize: 14, flexShrink: 0 }}
+              >
+                Lançar
               </button>
-              <button onClick={askTreino} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, textAlign: 'left', opacity: busy ? 0.5 : 1 }}>
-                <p style={{ fontSize: 18, margin: '0 0 6px' }}>🏋️</p>
-                <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: 0 }}>Dicas de treino</p>
+            </div>
+
+            {/* Água */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '28px 0 10px' }}>
+              <p className="mono-label" style={{ color: C.dim, margin: 0 }}>Água</p>
+              <p style={{ margin: 0, fontSize: 13, color: C.text }}>
+                <span className="display" style={{ fontSize: 19, color: waterFilled >= waterSegments ? C.emerald : C.text }}>
+                  {(waterMl / 1000).toFixed(1).replace('.', ',')}
+                </span>
+                <span style={{ color: C.dim }}> / {(waterGoalMl / 1000).toFixed(1).replace('.', ',')} L</span>
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 3, marginBottom: 12 }}>
+              {Array.from({ length: waterSegments }).map((_, i) => (
+                <div key={i} style={{ flex: 1, height: 6, background: i < waterFilled ? C.emerald : 'rgba(255,255,255,.13)' }} />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[[250, 'copo'], [500, 'garrafa']].map(([ml, nome]) => (
+                <button key={ml} onClick={() => updateDaily({ waterMl: waterMl + ml })}
+                  className="mono-label"
+                  style={{ flex: 1, background: 'transparent', border: `1px solid ${C.border}`, color: C.text, padding: '12px 0', fontSize: 10 }}>
+                  + {nome} {ml} ml
+                </button>
+              ))}
+            </div>
+
+            {/* Sono e treino */}
+            <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+              <div style={{ flex: 1, border: `1px solid ${C.border}`, padding: '14px 14px 12px' }}>
+                <p className="mono-label" style={{ color: C.dim, margin: 0 }}>Sono</p>
+                <p className="display" style={{ fontSize: 26, color: C.text, margin: '9px 0 4px', lineHeight: 1 }}>
+                  {daily.sleepHours ? `${daily.sleepHours}h` : '—'}
+                </p>
+                <p style={{ fontSize: 10.5, color: daily.sleepHours && daily.sleepHours < 7 ? C.emerald : C.dim, margin: '0 0 10px', lineHeight: 1.35 }}>
+                  {daily.sleepHours
+                    ? (daily.sleepHours < 7 ? 'Abaixo das 7h que você precisa' : 'Dentro do que o corpo pede')
+                    : 'Registra pra DONA calibrar o dia'}
+                </p>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={() => updateDaily({ sleepHours: Math.max(0, (daily.sleepHours || 7) - 1) })}
+                    style={{ flex: 1, background: 'transparent', border: `1px solid ${C.border}`, color: C.text, padding: '7px 0', fontSize: 14 }}>−</button>
+                  <button onClick={() => updateDaily({ sleepHours: Math.min(14, (daily.sleepHours || 7) + 1) })}
+                    style={{ flex: 1, background: 'transparent', border: `1px solid ${C.border}`, color: C.text, padding: '7px 0', fontSize: 14 }}>+</button>
+                </div>
+              </div>
+
+              <div style={{ flex: 1, border: `1px solid ${C.border}`, padding: '14px 14px 12px', display: 'flex', flexDirection: 'column' }}>
+                <p className="mono-label" style={{ color: C.dim, margin: 0 }}>Treino de hoje</p>
+                {workoutBonus > 0 ? (
+                  <React.Fragment>
+                    <p className="display" style={{ fontSize: 19, color: C.text, margin: '9px 0 4px', lineHeight: 1.05 }}>
+                      {(WORKOUT_TYPES[workoutTypeInput] || {}).label}
+                      {daily.workoutMinutesLogged ? ` · ${daily.workoutMinutesLogged} min` : ''}
+                    </p>
+                    <p className="mono-label" style={{ color: C.emerald, margin: '0 0 10px' }}>~{workoutBonus} kcal queimadas</p>
+                  </React.Fragment>
+                ) : (
+                  <p style={{ fontSize: 11, color: C.dim, margin: '9px 0 10px', lineHeight: 1.4 }}>
+                    Zero minutos hoje. Vinte minutos ainda contam.
+                  </p>
+                )}
+                <div style={{ marginTop: 'auto', display: 'flex', gap: 4 }}>
+                  <select value={workoutTypeInput} onChange={e => setWorkoutTypeInput(e.target.value)}
+                    style={{ ...inputStyle, padding: '7px 6px', fontSize: 11, borderRadius: 0 }}>
+                    {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>{w.label}</option>)}
+                  </select>
+                  <input type="number" inputMode="numeric" placeholder="min" value={workoutMinutes}
+                    onChange={e => setWorkoutMinutes(e.target.value)}
+                    style={{ ...inputStyle, padding: '7px 6px', fontSize: 11, borderRadius: 0, flex: '0 0 46px' }} />
+                </div>
+                <button
+                  onClick={() => {
+                    const kcal = estimateWorkoutKcal(workoutTypeInput, workoutMinutes, profile.weight);
+                    if (kcal > 0) {
+                      addLedgerEntry({
+                        label: (WORKOUT_TYPES[workoutTypeInput] || {}).label || 'Treino',
+                        kcal, source: 'treino',
+                        meta: workoutMinutes ? `${workoutMinutes} min` : null,
+                      });
+                      updateDaily({ workoutMinutesLogged: workoutMinutes });
+                      setWorkoutMinutes('');
+                    }
+                  }}
+                  className="mono-label"
+                  style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '9px 0', marginTop: 4, fontSize: 10, fontWeight: 700 }}
+                >
+                  Registrar treino
+                </button>
+              </div>
+            </div>
+
+            {/* Perguntas prontas */}
+            <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+              <button onClick={askCardapio} disabled={busy}
+                style={{ flex: 1, border: `1px solid ${C.emerald}`, background: 'transparent', padding: '15px 14px', textAlign: 'left', opacity: busy ? .5 : 1 }}>
+                <p className="display" style={{ fontSize: 17, color: C.emerald, margin: 0 }}>Dica de dieta</p>
+                <p className="mono-label" style={{ color: C.dim, margin: '8px 0 0' }}>Pergunta pronta →</p>
+              </button>
+              <button onClick={askTreino} disabled={busy}
+                style={{ flex: 1, border: `1px solid ${C.emerald}`, background: 'transparent', padding: '15px 14px', textAlign: 'left', opacity: busy ? .5 : 1 }}>
+                <p className="display" style={{ fontSize: 17, color: C.emerald, margin: 0 }}>Dica de treino</p>
+                <p className="mono-label" style={{ color: C.dim, margin: '8px 0 0' }}>Pergunta pronta →</p>
               </button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
-        {tab === 'perfil' && (
-          <div style={{ height: '100%', overflowY: 'auto', padding: '16px 20px' }}>
-            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>PERFIL</p>
-            <h1 style={{ fontSize: 20, fontWeight: 900, color: C.text, margin: '4px 0 16px' }}>Seus dados</h1>
+        {tab === 'perfil' && (() => {
+          const cal = computeCalorieBreakdown(profile);
+          const act = (ACTIVITY_FACTORS[profile.activityLevel] || ACTIVITY_FACTORS.leve).label.split(' ')[0];
+          return (
+          <div style={{ height: '100%', overflowY: 'auto', padding: '18px 20px 20px' }}>
+            <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Perfil</p>
 
-            {profile.picture && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <img src={profile.picture} style={{ width: 48, height: 48, borderRadius: 24 }} />
-                <div>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.name}</p>
-                  {profile.email && <p style={{ fontSize: 11, color: C.dim, margin: 0 }}>{profile.email}</p>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 13, margin: '14px 0 22px' }}>
+              {profile.picture && <img src={profile.picture} style={{ width: 46, height: 46, borderRadius: 23, flexShrink: 0 }} />}
+              <div style={{ minWidth: 0 }}>
+                <p className="display" style={{ fontSize: 22, color: C.text, margin: 0, lineHeight: 1.05 }}>{profile.name}</p>
+                {profile.email && <p style={{ fontSize: 11.5, color: C.dim, margin: '4px 0 0', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</p>}
+              </div>
+            </div>
+
+            {/* Objetivo em bloco chapado */}
+            {cal && (
+              <div style={{ background: C.emerald, color: C.onYellow, padding: '15px 17px', marginBottom: 20 }}>
+                <p className="mono-label" style={{ margin: 0, fontWeight: 700 }}>Objetivo</p>
+                <p className="display" style={{ fontSize: 24, margin: '7px 0 10px', lineHeight: 1 }}>{cal.goalLabel}</p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(11,11,11,.25)', paddingTop: 10 }}>
+                  <span className="mono-label" style={{ fontWeight: 700 }}>Meta diária</span>
+                  <span className="mono-label" style={{ fontWeight: 700 }}>{cal.target.toLocaleString('pt-BR')} kcal</span>
                 </div>
               </div>
             )}
 
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>peso</p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.weight}kg</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>altura</p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.height}cm</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>idade</p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{profile.age} anos</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>atividade</p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{(ACTIVITY_FACTORS[profile.activityLevel] || ACTIVITY_FACTORS.leve).label.split(' ')[0]}</p>
-                </div>
+            {/* Números */}
+            <p className="mono-label" style={{ color: C.dim, margin: '0 0 2px' }}>Seus números</p>
+            {[
+              ['Peso', `${profile.weight} kg`],
+              ['Altura', `${profile.height} cm`],
+              ['Idade', `${profile.age} anos`],
+              ['Atividade', act],
+            ].map(([k, v]) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 0', borderBottom: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 14, color: C.dim }}>{k}</span>
+                <span className="display" style={{ fontSize: 17, color: C.text }}>{v}</span>
               </div>
-            </div>
+            ))}
 
-            {(() => {
-              const cal = computeCalorieBreakdown(profile);
-              return cal && (
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>objetivo</p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.emerald, margin: '0 0 10px' }}>{cal.goalLabel}</p>
-                  <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>meta calórica diária</p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0 }}>{cal.target} kcal</p>
-                </div>
-              );
-            })()}
-
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-              <p style={{ fontSize: 9, color: C.dim, margin: 0 }}>treino</p>
+            {/* Treino */}
+            <p className="mono-label" style={{ color: C.dim, margin: '24px 0 2px' }}>Treino</p>
+            <div style={{ padding: '13px 0', borderBottom: `1px solid ${C.border}` }}>
               {profile.trains ? (
-                <React.Fragment>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: '0 0 4px' }}>{(WORKOUT_TYPES[profile.workoutType] || {}).label || profile.workoutType}</p>
-                  {profile.workoutTime && <p style={{ fontSize: 11, color: C.dim, margin: 0 }}>geralmente às {profile.workoutTime}</p>}
-                </React.Fragment>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="display" style={{ fontSize: 17, color: C.text }}>{(WORKOUT_TYPES[profile.workoutType] || {}).label || profile.workoutType}</span>
+                  {profile.workoutTime && <span className="mono-label" style={{ color: C.emerald }}>às {profile.workoutTime}</span>}
+                </div>
               ) : (
-                <p style={{ fontSize: 13, color: C.dim, margin: '4px 0 0' }}>Ainda sem rotina de treino definida</p>
+                <span style={{ fontSize: 13.5, color: C.dim }}>Sem rotina de treino definida ainda.</span>
               )}
             </div>
 
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: C.text, margin: '0 0 10px' }}>Notificações</p>
-              {notifStatus !== 'ok' ? (
-                <React.Fragment>
-                  <button onClick={handleActivateNotifications} disabled={notifStatus === 'asking'} style={{ width: '100%', background: C.emeraldDim, color: C.text, border: 'none', borderRadius: 10, padding: '10px', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-                    {notifStatus === 'asking' ? 'Aguardando permissão...' : '🔔 Ativar notificações'}
-                  </button>
-                  {notifStatus === 'error' && (
-                    <p style={{ fontSize: 10, color: C.amber, margin: 0 }}>Não deu pra ativar — confere se permitiu notificações no navegador.</p>
-                  )}
-                </React.Fragment>
-              ) : (
-                <React.Fragment>
-                  <p style={{ fontSize: 11, color: C.emerald, margin: '0 0 10px' }}>✓ Notificações ativadas</p>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <p style={{ fontSize: 12, color: C.text, margin: 0 }}>Lembrete de água (de hora em hora)</p>
-                    <button onClick={toggleNotifWater} style={{ background: notifWater ? C.emerald : C.cardAlt, color: notifWater ? '#022c1a' : C.dim, border: 'none', borderRadius: 999, padding: '4px 10px', fontSize: 10, fontWeight: 700 }}>
-                      {notifWater ? 'Ligado' : 'Desligado'}
+            {/* Notificações */}
+            <p className="mono-label" style={{ color: C.dim, margin: '24px 0 10px' }}>Notificações</p>
+            {notifStatus !== 'ok' ? (
+              <React.Fragment>
+                <button onClick={handleActivateNotifications} disabled={notifStatus === 'asking'}
+                  className="display"
+                  style={{ width: '100%', background: C.emerald, color: C.onYellow, border: 'none', padding: '14px', fontSize: 15, letterSpacing: '.05em' }}>
+                  {notifStatus === 'asking' ? 'Aguardando permissão...' : 'Ativar notificações'}
+                </button>
+                <p style={{ fontSize: 11.5, color: notifStatus === 'error' ? C.emerald : C.dim, margin: '10px 0 0', lineHeight: 1.5 }}>
+                  {notifStatus === 'error'
+                    ? 'Não deu pra ativar. Confere se você permitiu notificações no navegador.'
+                    : 'Lembrete de água, de refeição e do seu horário de treino — mesmo com o app fechado.'}
+                </p>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <p className="mono-label" style={{ color: C.emerald, margin: '0 0 12px' }}>✓ Ativadas</p>
+                {[
+                  ['Lembrete de água', notifWater, toggleNotifWater],
+                  ['Lembrete de refeição', notifMeal, toggleNotifMeal],
+                ].map(([label, val, fn]) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${C.border}` }}>
+                    <span style={{ fontSize: 14, color: C.text }}>{label}</span>
+                    <button onClick={fn} className="mono-label"
+                      style={{
+                        background: val ? C.emerald : 'transparent',
+                        color: val ? C.onYellow : C.dim,
+                        border: `1px solid ${val ? C.emerald : C.border}`,
+                        padding: '6px 12px', fontSize: 9.5, fontWeight: 700,
+                      }}>
+                      {val ? 'Ligado' : 'Desligado'}
                     </button>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <p style={{ fontSize: 12, color: C.text, margin: 0 }}>Lembrete de refeição</p>
-                    <button onClick={toggleNotifMeal} style={{ background: notifMeal ? C.emerald : C.cardAlt, color: notifMeal ? '#022c1a' : C.dim, border: 'none', borderRadius: 999, padding: '4px 10px', fontSize: 10, fontWeight: 700 }}>
-                      {notifMeal ? 'Ligado' : 'Desligado'}
-                    </button>
-                  </div>
-                  {profile.trains && <p style={{ fontSize: 10, color: C.dim, marginTop: 8 }}>Lembrete de treino segue o horário cadastrado no seu perfil.</p>}
-                </React.Fragment>
-              )}
-            </div>
+                ))}
+                {profile.trains && (
+                  <p style={{ fontSize: 11.5, color: C.dim, margin: '12px 0 0', lineHeight: 1.5 }}>
+                    O lembrete de treino segue o horário do seu perfil{profile.workoutTime ? ` (${profile.workoutTime})` : ''}.
+                  </p>
+                )}
+              </React.Fragment>
+            )}
 
-            <button onClick={resetProfile} style={{ width: '100%', background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px', color: C.dim, fontSize: 12, fontWeight: 700, marginTop: 8 }}>
+            <button onClick={resetProfile} className="mono-label"
+              style={{ width: '100%', background: 'transparent', border: `1px solid ${C.border}`, padding: '14px', color: C.dim, fontSize: 10, marginTop: 26 }}>
               Trocar perfil / sair
             </button>
           </div>
-        )}
+          );
+        })()}
 
         {tab === 'chat' && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ width: 36, height: 36, borderRadius: 18, background: C.emerald, color: '#022c1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}>D</div>
+            <div style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', gap: 11, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <span style={{ width: 26, height: 26, borderRadius: 13, border: `2px solid ${C.emerald}`, display: 'inline-block', position: 'relative', flexShrink: 0 }}>
+                <span style={{ position: 'absolute', inset: 5, borderRadius: 6, background: C.emerald }} />
+              </span>
               <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>DONA</p>
-                <p style={{ fontSize: 10, color: C.dim, margin: 0 }}>mentora do Papo Reto</p>
+                <p className="display" style={{ fontSize: 16, color: C.text, margin: 0, lineHeight: 1 }}>DONA</p>
+                <p className="mono-label" style={{ color: C.dim, margin: '3px 0 0' }}>Papo reto, sem filtro</p>
               </div>
             </div>
-            <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+            <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {messages.map(m => (
                 <div key={m.id} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
                   {m.image ? (
-                    <div style={{ maxWidth: '80%', background: m.from === 'user' ? C.emeraldDim : C.card, border: m.from === 'dona' ? `1px solid ${C.border}` : 'none', borderRadius: 16, overflow: 'hidden' }}>
-                      <img src={m.image} style={{ display: 'block', width: '100%', maxHeight: 220, objectFit: 'cover' }} />
-                      <p style={{ margin: 0, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: m.from === 'user' ? 'rgba(248,250,252,0.9)' : C.dim }}>
-                        {m.displayText || (m.from === 'user' ? '📷 Foto enviada' : '')}
-                      </p>
+                    <div style={{ maxWidth: '84%', border: `1px solid ${C.border}`, background: C.card }}>
+                      <img src={m.image} style={{ display: 'block', width: '100%', maxHeight: 240, objectFit: 'cover' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', borderTop: `1px solid ${C.border}` }}>
+                        <span className="mono-label" style={{ color: C.dim }}>{m.displayText || 'Foto enviada'}</span>
+                        <span className="mono-label" style={{ color: C.emerald }}>{timeLabel(new Date(m.id))}</span>
+                      </div>
+                    </div>
+                  ) : m.from === 'user' ? (
+                    <div style={{ maxWidth: '84%', background: C.cardAlt, color: C.text, padding: '11px 15px', fontSize: 14.5, lineHeight: 1.5 }}>
+                      {m.text}
                     </div>
                   ) : (
-                    <div style={{ maxWidth: '80%', background: m.from === 'user' ? C.emeraldDim : C.card, color: C.text, border: m.from === 'dona' ? `1px solid ${C.border}` : 'none', borderRadius: 16, padding: '10px 16px', fontSize: 14 }}>
-                      {m.from === 'dona' ? renderRichText(m.text) : m.text}
+                    <div style={{ maxWidth: '92%', borderLeft: `3px solid ${C.emerald}`, paddingLeft: 13, color: C.text, fontSize: 14.5, lineHeight: 1.55 }}>
+                      {renderRichText(m.text)}
                     </div>
                   )}
                 </div>
               ))}
-              {busy && <div style={{ fontSize: 11, color: C.dim }}>{busyLabel}</div>}
+              {busy && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 6, height: 6, background: C.emerald, display: 'inline-block' }} />
+                  <span className="mono-label" style={{ color: C.dim }}>{busyLabel}</span>
+                </div>
+              )}
             </div>
-            <div style={{ padding: 12, display: 'flex', gap: 8, borderTop: `1px solid ${C.border}` }}>
+
+            <div style={{ borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
               <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
               <input ref={execPhotosRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleExecPhotos} />
               <input ref={videoInputRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={handleVideo} />
-              <button onClick={() => fileInputRef.current.click()} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, width: 40, height: 40 }}>📷</button>
-              <button onClick={() => execPhotosRef.current.click()} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, width: 40, height: 40 }}>🖼️</button>
-              <button onClick={() => videoInputRef.current.click()} disabled={busy} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, width: 40, height: 40 }}>🎥</button>
-              <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Manda o papo..." disabled={busy} style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, padding: '10px 16px', color: C.text, fontSize: 14 }} />
-              <button onClick={send} disabled={busy} style={{ background: C.emerald, border: 'none', borderRadius: 999, width: 40, height: 40, opacity: busy ? 0.5 : 1 }}>➤</button>
+              <div style={{ display: 'flex' }}>
+                {[
+                  ['Foto', () => fileInputRef.current.click()],
+                  ['Várias fotos', () => execPhotosRef.current.click()],
+                  ['Vídeo', () => videoInputRef.current.click()],
+                ].map(([label, fn], i) => (
+                  <button key={label} onClick={fn} disabled={busy}
+                    className="display"
+                    style={{
+                      flex: 1, background: 'transparent', border: 'none',
+                      borderRight: i < 2 ? `1px solid ${C.border}` : 'none',
+                      borderBottom: `1px solid ${C.border}`,
+                      color: C.emerald, padding: '12px 0', fontSize: 13, letterSpacing: '.06em',
+                      opacity: busy ? .4 : 1,
+                    }}>{label}</button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', padding: 12, gap: 10 }}>
+                <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
+                  placeholder="Fala aí, sem enrolar..." disabled={busy}
+                  style={{ ...inputStyle, padding: '12px 14px' }} />
+                <button onClick={send} disabled={busy} className="display"
+                  style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '12px 20px', fontSize: 14, letterSpacing: '.06em', opacity: busy ? .5 : 1, flexShrink: 0 }}>
+                  Enviar
+                </button>
+              </div>
             </div>
           </div>
         )}
 
         {tab === 'galeria' && (
-          <div style={{ height: '100%', overflowY: 'auto', padding: '16px 20px' }}>
-            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.emerald, margin: 0 }}>GALERIA</p>
-            <h1 style={{ fontSize: 20, fontWeight: 900, color: C.text, margin: '4px 0 12px' }}>Referência de execução</h1>
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 12, marginBottom: 4 }}>
+          <div style={{ height: '100%', overflowY: 'auto', padding: '18px 20px 20px' }}>
+            <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Exercícios</p>
+            <h1 className="display" style={{ fontSize: 28, color: C.text, margin: '4px 0 16px', lineHeight: 1 }}>Referência de execução</h1>
+
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 14, marginBottom: 6 }}>
               {['Todos', ...MUSCLE_GROUPS].map(g => (
-                <button key={g} onClick={() => setGalleryGroup(g)} style={{ flexShrink: 0, background: galleryGroup === g ? C.emerald : C.card, color: galleryGroup === g ? '#022c1a' : C.dim, border: `1px solid ${galleryGroup === g ? C.emerald : C.border}`, borderRadius: 999, padding: '6px 14px', fontSize: 11, fontWeight: 700 }}>
+                <button key={g} onClick={() => setGalleryGroup(g)}
+                  className="mono-label"
+                  style={{
+                    flexShrink: 0,
+                    background: galleryGroup === g ? C.emerald : 'transparent',
+                    color: galleryGroup === g ? C.onYellow : C.dim,
+                    border: `1px solid ${galleryGroup === g ? C.emerald : C.border}`,
+                    padding: '8px 13px', fontSize: 10,
+                  }}>
                   {g}
                 </button>
               ))}
             </div>
-            {EXERCISES.filter(ex => galleryGroup === 'Todos' || ex.group === galleryGroup).map(ex => (
-              <div key={ex.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14, marginBottom: 10 }}>
-                <button onClick={() => setExpandedExercise(expandedExercise === ex.id ? null : ex.id)} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ fontSize: 9, color: C.emerald, fontWeight: 700, margin: 0 }}>{ex.group.toUpperCase()}</p>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>{ex.name}</p>
-                  </div>
-                  <span style={{ color: C.dim, fontSize: 12 }}>{expandedExercise === ex.id ? '▲' : '▼'}</span>
-                </button>
-                {expandedExercise === ex.id && (
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: C.dim, margin: '0 0 6px' }}>DICAS DE EXECUÇÃO</p>
-                    <ul style={{ margin: '0 0 10px', paddingLeft: 18 }}>
-                      {ex.tips.map((t, i) => <li key={i} style={{ fontSize: 12, color: C.text, marginBottom: 4 }}>{t}</li>)}
-                    </ul>
-                    <div style={{ background: C.cardAlt, borderRadius: 8, padding: 10, marginBottom: 10 }}>
-                      <p style={{ fontSize: 10, fontWeight: 700, color: C.amber, margin: '0 0 4px' }}>⚠ PONTO DE ATENÇÃO</p>
-                      <p style={{ fontSize: 12, color: C.text, margin: 0 }}>{ex.attention}</p>
+
+            {EXERCISES.filter(ex => galleryGroup === 'Todos' || ex.group === galleryGroup).map(ex => {
+              const open = expandedExercise === ex.id;
+              return (
+                <div key={ex.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                  <button onClick={() => setExpandedExercise(open ? null : ex.id)}
+                    style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '15px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>{ex.group}</p>
+                      <p className="display" style={{ fontSize: 17, color: C.text, margin: '6px 0 0', lineHeight: 1.1 }}>{ex.name}</p>
                     </div>
-                    <a href={youtubeSearchUrl(ex.name)} target="_blank" rel="noopener noreferrer" style={{ display: 'block', textAlign: 'center', background: C.emeraldDim, color: C.text, borderRadius: 8, padding: '8px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-                      ▶ Ver execução no YouTube
-                    </a>
-                  </div>
-                )}
-              </div>
-            ))}
-            <p style={{ fontSize: 10, color: C.dim, textAlign: 'center', marginTop: 8 }}>
-              Manda um vídeo do seu treino pra DONA no chat pra ela te dar dicas específicas.
+                    <span style={{ color: open ? C.emerald : C.dim, fontSize: 13, flexShrink: 0 }}>{open ? '—' : '+'}</span>
+                  </button>
+
+                  {open && (
+                    <div style={{ paddingBottom: 18 }}>
+                      <p className="mono-label" style={{ color: C.dim, margin: '0 0 10px' }}>Como executar</p>
+                      {ex.tips.map((t, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 11, marginBottom: 8 }}>
+                          <span className="mono-label" style={{ color: C.emerald, flexShrink: 0, paddingTop: 3 }}>0{i + 1}</span>
+                          <span style={{ fontSize: 13.5, color: C.text, lineHeight: 1.5 }}>{t}</span>
+                        </div>
+                      ))}
+                      <div style={{ background: C.emerald, color: C.onYellow, padding: '11px 13px', margin: '14px 0 12px' }}>
+                        <p className="mono-label" style={{ margin: '0 0 5px', fontWeight: 700 }}>Erro mais comum</p>
+                        <p style={{ fontSize: 13, margin: 0, lineHeight: 1.45, fontWeight: 500 }}>{ex.attention}</p>
+                      </div>
+                      <a href={youtubeSearchUrl(ex.name)} target="_blank" rel="noopener noreferrer"
+                        className="mono-label"
+                        style={{ display: 'block', textAlign: 'center', border: `1px solid ${C.border}`, color: C.text, padding: '11px', textDecoration: 'none' }}>
+                        Ver execução no YouTube →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <p style={{ fontSize: 11.5, color: C.dim, marginTop: 22, lineHeight: 1.5, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
+              Vai treinar? Manda as fotos da sua execução pra DONA no chat que ela te dá dicas do seu movimento.
             </p>
           </div>
         )}
       </div>
 
-      <div style={{ display: 'flex', borderTop: `1px solid ${C.border}` }}>
-        {[['home','Painel'], ['chat','DONA'], ['galeria','Galeria'], ['perfil','Perfil']].map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} style={{ flex: 1, background: 'none', border: 'none', padding: '12px 0', color: tab === id ? C.emerald : C.dim, fontSize: 10, fontWeight: 700 }}>{label}</button>
+      <div style={{ display: 'flex', borderTop: `1px solid ${C.border}`, background: C.bg, flexShrink: 0 }}>
+        {[['home','Painel'], ['chat','DONA'], ['galeria','Exercícios'], ['perfil','Perfil']].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className="display"
+            style={{
+              flex: 1, background: 'none', border: 'none',
+              borderTop: `3px solid ${tab === id ? C.emerald : 'transparent'}`,
+              marginTop: -1, padding: '14px 0 13px',
+              color: tab === id ? C.emerald : C.dim,
+              fontSize: 12, letterSpacing: '.1em',
+            }}>{label}</button>
         ))}
       </div>
     </Phone>
   );
 }
 
-const inputStyle = { background: '#0F172A', border: '1px solid #1E293B', borderRadius: 12, padding: '12px 16px', color: '#F8FAFC', fontSize: 14, flex: 1, minWidth: 0, outline: 'none' };
+const inputStyle = { background: '#151513', border: '1px solid rgba(255,255,255,.13)', borderRadius: 0, padding: '13px 14px', color: '#F5F4F0', fontSize: 14, flex: 1, minWidth: 0, outline: 'none' };
 
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
 </script>

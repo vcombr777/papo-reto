@@ -221,6 +221,39 @@ function fileToBase64(file) {
   });
 }
 
+// Reduz a foto antes de enviar. Foto de celular vem com 3-8MB e estoura o limite
+// da requisição — 1280px de lado maior já é mais que suficiente pra IA reconhecer
+// o prato, e derruba o tamanho pra algumas centenas de KB.
+function fileToCompressedBase64(file, maxSide = 1280, quality = 0.72) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    const done = (result) => { URL.revokeObjectURL(url); resolve(result); };
+
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const data = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+        console.log('[foto] original', (file.size / 1024 / 1024).toFixed(2) + 'MB',
+                    '→ enviada', (data.length * 0.75 / 1024).toFixed(0) + 'KB');
+        done({ data, mimeType: 'image/jpeg' });
+      } catch (e) {
+        // se o canvas falhar, manda o arquivo original mesmo
+        fileToBase64(file).then(d => done({ data: d, mimeType: file.type || 'image/jpeg' }));
+      }
+    };
+    img.onerror = () => {
+      fileToBase64(file).then(d => done({ data: d, mimeType: file.type || 'image/jpeg' }));
+    };
+    img.src = url;
+  });
+}
+
 // Extrai N quadros espalhados ao longo do vídeo, direto no navegador (nada é enviado como vídeo bruto).
 function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
   console.log('[video] iniciando extração. arquivo:', file.name, file.type, (file.size / 1024 / 1024).toFixed(2) + 'MB');
@@ -703,7 +736,14 @@ function App() {
       setMessages(finalMsgs); save('chat_ui', finalMsgs);
       logEvent(profile.id, profile.name, images && images.length ? 'midia_analisada' : 'mensagem_enviada', {});
     } catch (e) {
-      const finalMsgs = [...nextMsgs, { id: Date.now() + 1, from: 'dona', text: 'Não consegui te responder agora, tenta de novo em instantes.' }];
+      console.error('[dona] falhou:', e.name, e.message);
+      const tooBig = /413|payload|too large|body/i.test(e.message || '');
+      const msg = e.name === 'AbortError'
+        ? 'Demorei demais pra responder. Tenta de novo.'
+        : tooBig
+          ? 'Essa mídia ficou pesada demais pra mim. Tenta uma foto só, ou tira uma nova com menos zoom.'
+          : 'Não consegui te responder agora, tenta de novo em instantes.';
+      const finalMsgs = [...nextMsgs, { id: Date.now() + 1, from: 'dona', text: msg }];
       setMessages(finalMsgs); save('chat_ui', finalMsgs);
     } finally { setBusy(false); setBusyLabel('DONA tá digitando...'); }
   };
@@ -739,9 +779,11 @@ function App() {
     if (!file || busy) return;
     const previewUrl = URL.createObjectURL(file);
     setBusyLabel('DONA tá analisando a foto...');
-    const base64 = await fileToBase64(file);
+    setBusy(true);
+    const img = await fileToCompressedBase64(file);
     const caption = 'O que você vê nessa foto? Quantas calorias, mais ou menos, e tem algum ponto de atenção?';
-    runDona({ id: Date.now(), from: 'user', text: caption, displayText: '📷 Foto enviada', image: previewUrl }, caption, [{ data: base64, mimeType: file.type || 'image/jpeg' }]);
+    setBusy(false);
+    runDona({ id: Date.now(), from: 'user', text: caption, displayText: '📷 Foto enviada', image: previewUrl }, caption, [img]);
   };
 
   const handleExecPhotos = async (e) => {
@@ -751,10 +793,10 @@ function App() {
     setBusyLabel('DONA tá analisando as fotos...');
     setBusy(true);
     try {
-      const base64s = await Promise.all(files.map(f => fileToBase64(f)));
+      // várias fotos numa requisição só: comprime mais agressivo pra caber
+      const images = await Promise.all(files.map(f => fileToCompressedBase64(f, 900, 0.65)));
       const previewUrl = URL.createObjectURL(files[0]);
       const caption = 'Aqui estão algumas fotos — pode ser comida/refeição ou a execução de um exercício em momentos diferentes. Analisa o que fizer mais sentido pelo que você está vendo e me ajuda (calorias, se for comida; dicas de execução, se for exercício).';
-      const images = base64s.map((b64, i) => ({ data: b64, mimeType: files[i].type || 'image/jpeg' }));
       setBusy(false);
       runDona({ id: Date.now(), from: 'user', text: caption, displayText: '🖼️ Fotos enviadas', image: previewUrl }, caption, images);
     } catch (err) {

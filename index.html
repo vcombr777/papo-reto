@@ -43,6 +43,7 @@
   input, select, textarea, button { font-family: 'Space Grotesk', sans-serif; }
   input::placeholder { color: #6B6862; }
   ::-webkit-scrollbar { width: 0; height: 0; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
 </style>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -192,25 +193,70 @@ async function askDona(history, text, images, profileSummary) {
 }
 
 // Monta um resumo do perfil pra DONA "lembrar" quem é a pessoa em toda mensagem
+// Primeira fala da DONA: ela se apresenta, puxa o registro do sono e abre a entrevista
+function buildFirstMessage(profile) {
+  const nome = profile && profile.name ? profile.name.split(' ')[0] : '';
+  const obj = profile ? (GOAL_INFO[profile.goal] || {}).label : null;
+  const abertura = nome ? `Oi, ${nome}. Eu sou a DONA` : 'Oi. Eu sou a DONA';
+  const sobre = obj
+    ? `, sua mentora aqui no Papo Reto. Já vi que seu foco é **${obj.toLowerCase()}** — então vamos direto ao ponto.`
+    : ', sua mentora aqui no Papo Reto. Vamos direto ao ponto.';
+  return `${abertura}${sobre}
+
+**Antes de qualquer coisa: quantas horas você dormiu essa noite?** Sono é o que decide como seu corpo vai responder hoje — sem esse número eu tô no escuro.
+
+Depois me conta um pouco da sua rotina de comida: você come mais na rua ou leva marmita de casa?
+
+*Se der preguiça de digitar, é só gravar um áudio no microfone aí embaixo — eu escuto.*`;
+}
+
 function buildProfileSummary(profile, daily) {
   if (!profile) return '';
   const cal = computeCalorieBreakdown(profile);
   const waterGoal = computeWaterGoalMl(profile.weight);
-  const parts = [
+
+  const perfil = [
     `Nome: ${profile.name}`,
     profile.age ? `Idade: ${profile.age} anos` : null,
     profile.sex ? `Sexo: ${profile.sex === 'M' ? 'masculino' : 'feminino'}` : null,
     profile.weight ? `Peso: ${profile.weight}kg` : null,
     profile.height ? `Altura: ${profile.height}cm` : null,
     cal ? `Objetivo: ${cal.goalLabel}` : null,
-    cal ? `Meta calórica diária calculada: ${cal.target} kcal` : null,
-    `Meta de água diária: ${(waterGoal / 1000).toFixed(1)}L`,
-    profile.trains ? `Treina: ${(WORKOUT_TYPES[profile.workoutType] || {}).label || profile.workoutType}${profile.workoutTime ? `, geralmente às ${profile.workoutTime}` : ''}` : 'Ainda não tem rotina de treino definida',
-    daily && daily.sleepHours ? `Sono relatado hoje: ${daily.sleepHours}h` : null,
-    daily && daily.workoutKcal ? `Estimativa de kcal queimadas no treino de hoje: ${daily.workoutKcal}` : null,
-    daily && daily.caloriesConsumed ? `Calorias já registradas hoje: ${daily.caloriesConsumed} kcal` : null,
-  ].filter(Boolean);
-  return parts.join(' | ');
+    cal ? `Meta calórica: ${cal.target} kcal/dia` : null,
+    `Meta de água: ${(waterGoal / 1000).toFixed(1)}L/dia`,
+    profile.trains
+      ? `Treina ${(WORKOUT_TYPES[profile.workoutType] || {}).label || profile.workoutType}${profile.workoutTime ? `, geralmente às ${profile.workoutTime}` : (profile.flexTime ? ', sem horário fixo' : '')}`
+      : 'Ainda não tem rotina de treino definida',
+  ].filter(Boolean).join(' | ');
+
+  const hoje = [
+    daily && daily.sleepHours ? `dormiu ${daily.sleepHours}h` : 'AINDA NÃO REGISTROU O SONO DE HOJE',
+    daily && daily.caloriesConsumed ? `já consumiu ${daily.caloriesConsumed} kcal` : 'nada lançado no extrato ainda',
+    daily && daily.workoutKcal ? `treino de hoje queimou ~${daily.workoutKcal} kcal` : null,
+    daily && daily.waterMl ? `bebeu ${(daily.waterMl / 1000).toFixed(1)}L de água` : 'não registrou água ainda',
+  ].filter(Boolean).join(', ');
+
+  const blocos = [`PERFIL: ${perfil}`, `HOJE: ${hoje}`];
+
+  // Histórico dos últimos dias: deixa a DONA lembrar o que foi treinado e comido
+  const hist = [];
+  for (let i = 1; i <= 6; i++) {
+    const d = new Date(Date.now() - i * 86400000);
+    const key = d.toISOString().slice(0, 10);
+    const dia = load(`daily:${key}`, null);
+    if (!dia || !(dia.entries || []).length) continue;
+    const treinos = dia.entries.filter(e => e.kcal > 0).map(e => e.label);
+    const refs = dia.entries.filter(e => e.kcal < 0).length;
+    const label = d.toLocaleDateString('pt-BR', { weekday: 'long' });
+    hist.push(`${label} (${i}d atrás): ${treinos.length ? 'treinou ' + treinos.join(', ') : 'sem treino registrado'}, ${refs} refeição(ões) lançada(s)${dia.sleepHours ? `, dormiu ${dia.sleepHours}h` : ''}`);
+  }
+  if (hist.length) blocos.push('ÚLTIMOS DIAS:\n' + hist.map(h => '- ' + h).join('\n'));
+
+  const notas = load('dona_notes', []);
+  if (notas.length) blocos.push('O QUE VOCÊ JÁ SABE SOBRE ELA (suas notas):\n' + notas.map(n => '- ' + n).join('\n'));
+  else blocos.push('VOCÊ AINDA NÃO TEM NOTAS SOBRE ESSA PESSOA — é a primeira conversa de verdade, se apresente e comece a conhecê-la.');
+
+  return blocos.join('\n\n');
 }
 
 function fileToBase64(file) {
@@ -225,6 +271,88 @@ function fileToBase64(file) {
 // Reduz a foto antes de enviar. Foto de celular vem com 3-8MB e estoura o limite
 // da requisição — 1280px de lado maior já é mais que suficiente pra IA reconhecer
 // o prato, e derruba o tamanho pra algumas centenas de KB.
+
+// ── Áudio ───────────────────────────────────────────────────────────────────
+// Cada navegador grava num formato diferente (o iPhone usa mp4/aac, o Android webm).
+// Em vez de torcer pra IA aceitar todos, convertemos aqui pra WAV 16kHz mono —
+// formato universal pra voz, pequeno, e que funciona igual em qualquer aparelho.
+
+function pickRecorderMime() {
+  if (typeof MediaRecorder === 'undefined') return null;
+  const candidatos = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/ogg'];
+  for (const m of candidatos) {
+    try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) {}
+  }
+  return '';
+}
+
+function encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const wr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  wr(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  wr(8, 'WAVE'); wr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);          // PCM
+  view.setUint16(22, 1, true);          // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  wr(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++, off += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return buffer;
+}
+
+async function blobToWavBase64(blob, targetRate = 16000) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  const arr = await blob.arrayBuffer();
+  const decoded = await new Promise((res, rej) => {
+    const p = ctx.decodeAudioData(arr, res, rej);
+    if (p && p.then) p.then(res).catch(rej); // Safari usa a versão com callback
+  });
+
+  // junta os canais em mono
+  const canais = decoded.numberOfChannels;
+  const len = decoded.length;
+  const mono = new Float32Array(len);
+  for (let ch = 0; ch < canais; ch++) {
+    const dados = decoded.getChannelData(ch);
+    for (let i = 0; i < len; i++) mono[i] += dados[i] / canais;
+  }
+
+  // reamostra pra 16kHz por interpolação (funciona em qualquer navegador)
+  const ratio = decoded.sampleRate / targetRate;
+  const outLen = Math.floor(len / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * ratio;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(len - 1, i0 + 1);
+    const f = pos - i0;
+    out[i] = mono[i0] * (1 - f) + mono[i1] * f;
+  }
+
+  try { ctx.close(); } catch (e) {}
+
+  const wav = encodeWav(out, targetRate);
+  let bin = '';
+  const bytes = new Uint8Array(wav);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  console.log('[audio] enviado', (wav.byteLength / 1024).toFixed(0) + 'KB');
+  return { data: btoa(bin), mimeType: 'audio/wav' };
+}
+
 function fileToCompressedBase64(file, maxSide = 1280, quality = 0.72) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
@@ -252,126 +380,6 @@ function fileToCompressedBase64(file, maxSide = 1280, quality = 0.72) {
       fileToBase64(file).then(d => done({ data: d, mimeType: file.type || 'image/jpeg' }));
     };
     img.src = url;
-  });
-}
-
-// Extrai N quadros espalhados ao longo do vídeo, direto no navegador (nada é enviado como vídeo bruto).
-function extractVideoFrames(file, frameCount = 5, maxWidth = 480) {
-  console.log('[video] iniciando extração. arquivo:', file.name, file.type, (file.size / 1024 / 1024).toFixed(2) + 'MB');
-  return new Promise((resolve, reject) => {
-    const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true;
-    video.setAttribute('muted', '');
-    video.playsInline = true;
-    video.setAttribute('playsinline', '');
-    video.setAttribute('webkit-playsinline', '');
-    // Fica dentro da área visível (não em -9999px) pra evitar que o iOS pause a
-    // decodificação de vídeos que ele considera "fora de tela". Invisível por opacidade, não por posição.
-    video.style.position = 'fixed';
-    video.style.top = '0';
-    video.style.left = '0';
-    video.style.width = '2px';
-    video.style.height = '2px';
-    video.style.opacity = '0.01';
-    video.style.pointerEvents = 'none';
-    document.body.appendChild(video);
-
-    const url = URL.createObjectURL(file);
-    video.src = url;
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const frames = [];
-    let finished = false;
-    let targets = [];
-    let targetIdx = 0;
-
-    const cleanup = () => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timeoutId);
-      try { video.pause(); } catch (e) {}
-      URL.revokeObjectURL(url);
-      if (video.parentNode) video.parentNode.removeChild(video);
-    };
-
-    const timeoutId = setTimeout(() => {
-      if (finished) return;
-      cleanup();
-      if (frames.length > 0) resolve(frames);
-      else reject(new Error('Tempo esgotado lendo o vídeo'));
-    }, 20000);
-
-    const grabFrame = () => {
-      try {
-        const scale = Math.min(1, maxWidth / (video.videoWidth || maxWidth));
-        canvas.width = Math.max(1, Math.round((video.videoWidth || maxWidth) * scale));
-        canvas.height = Math.max(1, Math.round((video.videoHeight || maxWidth) * scale));
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        frames.push(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
-        console.log('[video] quadro capturado', frames.length, 'de', frameCount);
-      } catch (e) {
-        console.error('[video] erro ao capturar quadro:', e.name, e.message);
-      }
-    };
-
-    const finishUp = () => {
-      console.log('[video] finalizado, total de quadros:', frames.length);
-      cleanup();
-      resolve(frames);
-    };
-
-    // Método principal: reproduz o vídeo de verdade (mudo) e captura quadros
-    // conforme ele passa pelos tempos-alvo — é o jeito recomendado pra funcionar no iOS.
-    const runByPlayback = () => {
-      console.log('[video] usando requestVideoFrameCallback');
-      const onFrame = (now, metadata) => {
-        if (finished) return;
-        const t = metadata.mediaTime;
-        if (targetIdx < targets.length && t >= targets[targetIdx]) {
-          grabFrame();
-          targetIdx += 1;
-        }
-        if (targetIdx >= targets.length) { finishUp(); return; }
-        video.requestVideoFrameCallback(onFrame);
-      };
-      video.requestVideoFrameCallback(onFrame);
-      video.play().then(() => {
-        console.log('[video] play() iniciou com sucesso');
-      }).catch((e) => {
-        console.error('[video] play() falhou:', e.name, e.message, '-> caindo pro método de busca');
-        runBySeek();
-      });
-    };
-
-    // Método reserva: pula ponto a ponto (usado se o navegador não suportar o método acima)
-    const runBySeek = () => {
-      console.log('[video] usando método de busca (seek)');
-      let seekIndex = 0;
-      const seekNext = () => { if (!finished) video.currentTime = targets[seekIndex]; };
-      video.onseeked = () => {
-        if (finished) return;
-        grabFrame();
-        seekIndex += 1;
-        if (seekIndex < targets.length) seekNext();
-        else finishUp();
-      };
-      seekNext();
-    };
-
-    video.onloadedmetadata = () => {
-      console.log('[video] metadados carregados. duração:', video.duration, 'dimensões:', video.videoWidth, 'x', video.videoHeight, 'rVFC disponível:', typeof video.requestVideoFrameCallback === 'function');
-      const dur = video.duration || 1;
-      targets = Array.from({ length: frameCount }, (_, i) => (dur * (i + 1)) / (frameCount + 1));
-      if (typeof video.requestVideoFrameCallback === 'function') runByPlayback();
-      else runBySeek();
-    };
-    video.onerror = () => {
-      console.error('[video] evento de erro do elemento <video>. código:', video.error && video.error.code, 'mensagem:', video.error && video.error.message);
-      cleanup();
-      reject(new Error('Não consegui ler esse vídeo'));
-    };
   });
 }
 
@@ -448,6 +456,14 @@ function computeCalorieBreakdown(profile) {
 
 // Referência clássica de hidratação: ~35ml de água por kg de peso corporal
 // Nomeia a refeição pelo horário, pro extrato ficar legível sem o usuário digitar nada
+function greetingForNow(d = new Date()) {
+  const h = d.getHours();
+  if (h < 5) return 'Ainda de pé';
+  if (h < 12) return 'Bom dia';
+  if (h < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
 function mealLabelForNow(d = new Date()) {
   const h = d.getHours();
   if (h < 10) return 'Café da manhã';
@@ -586,14 +602,13 @@ function App() {
   const [daily, setDaily] = useState(() => load(`daily:${todayKey()}`, { waterMl: 0, sleepHours: null }));
   const [containerMl, setContainerMl] = useState(() => load('container_ml', 200));
   const [workoutMinutes, setWorkoutMinutes] = useState('');
-  const [mealKcalInput, setMealKcalInput] = useState('');
   const [workoutTypeInput, setWorkoutTypeInput] = useState(() => profile ? (profile.workoutType || 'musculacao') : 'musculacao');
   const [notifWater, setNotifWater] = useState(() => load('notif_water', true));
   const [notifMeal, setNotifMeal] = useState(() => load('notif_meal', true));
   const [notifStatus, setNotifStatus] = useState('idle'); // idle | asking | ok | error
   const [streak, setStreak] = useState(0);
   const [messages, setMessages] = useState(() => load('chat_ui', [
-    { id: 1, from: 'dona', text: 'Bom dia. Dormiu quanto essa noite? E manda uma foto do seu prato ou da geladeira quando quiser, eu leio.' },
+    { id: 1, from: 'dona', text: buildFirstMessage(load('profile', null)) },
   ]));
   const geminiHistoryRef = useRef(load('chat_api', []));
   const [busy, setBusy] = useState(false);
@@ -604,7 +619,12 @@ function App() {
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const execPhotosRef = useRef(null);
-  const videoInputRef = useRef(null);
+  const avatarInputRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const [recording, setRecording] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
   const googleBtnRef = useRef(null);
   const [googleProfile, setGoogleProfile] = useState(null);
   const [onboardStep, setOnboardStep] = useState('auth'); // 'auth' | 'welcome' | 'form'
@@ -661,6 +681,18 @@ function App() {
   }, [profile]);
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy, tab]);
+
+  // cronômetro da gravação — para sozinho no limite pra não virar áudio de 10 minutos
+  useEffect(() => {
+    if (!recording) return;
+    const t = setInterval(() => {
+      setRecSecs(s => {
+        if (s + 1 >= MAX_REC) { stopRecording(); return MAX_REC; }
+        return s + 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [recording]);
 
   // Login por e-mail/senha. NESTA FASE DE TESTE a conta vive só neste aparelho —
   // antes de cobrar, isso precisa migrar pro Supabase Auth (senha real, recuperação,
@@ -748,6 +780,8 @@ function App() {
     setProfile(p);
     logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, goal: p.goal, activityLevel: p.activityLevel, trains: p.trains, viaGoogle: !!googleProfile });
     syncNotificationPrefs(p, computeWaterGoalMl(p.weight));
+    const abertura = [{ id: 1, from: 'dona', text: buildFirstMessage(p) }];
+    setMessages(abertura); save('chat_ui', abertura);
   };
 
   const updateDaily = (patch) => {
@@ -778,6 +812,91 @@ function App() {
     updateDaily({ entries, ...recalcFromEntries(entries) });
   };
 
+  // Guarda o que a DONA aprendeu sobre a pessoa. Fica no aparelho e volta pra ela
+  // em toda conversa, então ela lembra de tudo sem precisar perguntar de novo.
+  // Grava a voz e manda pra DONA. Limite de 90s: passa disso vira monólogo e encarece.
+  const MAX_REC = 90;
+
+  const startRecording = async () => {
+    if (busy || recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mime = pickRecorderMime();
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunksRef.current.push(ev.data); };
+      rec.onstop = () => finishRecording(rec.mimeType);
+      recorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+      setRecSecs(0);
+    } catch (err) {
+      console.error('[audio] microfone negado:', err.name, err.message);
+      const msgs = [...messages, { id: Date.now(), from: 'dona', text: 'Não consegui acessar seu microfone. Confere a permissão do navegador e tenta de novo.' }];
+      setMessages(msgs); save('chat_ui', msgs);
+    }
+  };
+
+  const stopRecording = () => {
+    const rec = recorderRef.current;
+    if (rec && rec.state !== 'inactive') rec.stop();
+    setRecording(false);
+  };
+
+  const cancelRecording = () => {
+    chunksRef.current = [];
+    const rec = recorderRef.current;
+    if (rec && rec.state !== 'inactive') { rec.onstop = null; rec.stop(); }
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    setRecording(false);
+    setRecSecs(0);
+  };
+
+  const finishRecording = async (mime) => {
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    const pedacos = chunksRef.current;
+    chunksRef.current = [];
+    if (!pedacos.length) return;
+    setBusyLabel('DONA tá ouvindo...');
+    setBusy(true);
+    try {
+      const blob = new Blob(pedacos, { type: mime || 'audio/webm' });
+      const audio = await blobToWavBase64(blob);
+      const caption = 'Segue um áudio meu. Escuta e responde no seu tom de sempre. Se eu estiver contando o que comi, estima as calorias e confirma comigo o que você entendeu antes de lançar.';
+      setBusy(false);
+      runDona({ id: Date.now(), from: 'user', text: caption, displayText: `🎙️ Áudio de ${recSecs}s`, audio: true }, caption, [audio]);
+    } catch (err) {
+      console.error('[audio] falhou:', err.name, err.message);
+      setBusy(false);
+      const msgs = [...messages, { id: Date.now(), from: 'dona', text: 'Não consegui processar esse áudio. Tenta gravar de novo, ou me escreve.' }];
+      setMessages(msgs); save('chat_ui', msgs);
+    } finally {
+      setRecSecs(0);
+    }
+  };
+
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    // guarda pequena e quadrada: a foto fica no aparelho, não sobe pra lugar nenhum
+    const img = await fileToCompressedBase64(file, 256, 0.8);
+    const p = { ...profile, picture: 'data:image/jpeg;base64,' + img.data };
+    save('profile', p);
+    setProfile(p);
+  };
+
+  const saveUserNotes = (novas) => {
+    const atuais = load('dona_notes', []);
+    const conhecidas = new Set(atuais.map(n => n.toLowerCase()));
+    const merged = [...atuais];
+    novas.forEach(n => {
+      if (!conhecidas.has(n.toLowerCase())) { merged.push(n); conhecidas.add(n.toLowerCase()); }
+    });
+    save('dona_notes', merged.slice(-60)); // teto pra não crescer sem fim
+  };
+
   const setContainerSize = (ml) => {
     setContainerMl(ml);
     save('container_ml', ml);
@@ -791,9 +910,16 @@ function App() {
       const profileSummary = buildProfileSummary(profile, daily);
       const rawReply = await askDona(geminiHistoryRef.current, apiText, images, profileSummary);
 
+      // Notas: o que a DONA aprendeu sobre a pessoa e vale lembrar semanas depois
+      const notas = [...rawReply.matchAll(/\[\[NOTA:([^\]]+)\]\]/g)].map(m => m[1].trim()).filter(Boolean);
+      if (notas.length) saveUserNotes(notas);
+
       // Captura automática: se a DONA etiquetou uma estimativa de calorias, soma sozinho no painel
       const kcalMatch = rawReply.match(/\[\[KCAL:(\d+)\]\]/);
-      let reply = rawReply.replace(/\s*\[\[KCAL:\d+\]\]\s*$/, '').trim();
+      let reply = rawReply
+        .replace(/\[\[NOTA:[^\]]+\]\]/g, '')
+        .replace(/\s*\[\[KCAL:\d+\]\]\s*/g, '')
+        .trim();
       if (kcalMatch) {
         const kcal = parseInt(kcalMatch[1], 10);
         if (kcal > 0) {
@@ -876,28 +1002,6 @@ function App() {
     } catch (err) {
       setBusy(false);
       const finalMsgs = [...messages, { id: Date.now(), from: 'dona', text: 'Não consegui ler essas fotos, tenta de novo.' }];
-      setMessages(finalMsgs); save('chat_ui', finalMsgs);
-    }
-  };
-
-  const handleVideo = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!file || busy) return;
-    setBusyLabel('DONA tá analisando os quadros do vídeo...');
-    setBusy(true);
-    try {
-      const frames = await extractVideoFrames(file, 5, 480);
-      if (!frames.length) throw new Error('Nenhum quadro foi capturado do vídeo');
-      const previewUrl = 'data:image/jpeg;base64,' + frames[0];
-      const caption = 'Analisa a execução desse exercício nesses quadros e me dá dicas de melhoria — sempre como sugestão, não como prescrição.';
-      const images = frames.map(f => ({ data: f, mimeType: 'image/jpeg' }));
-      setBusy(false);
-      runDona({ id: Date.now(), from: 'user', text: caption, displayText: '🎥 Vídeo enviado', image: previewUrl }, caption, images);
-    } catch (err) {
-      console.error('[video] handleVideo falhou:', err.name, err.message, err.stack);
-      setBusy(false);
-      const finalMsgs = [...messages, { id: Date.now(), from: 'dona', text: 'Esse formato de vídeo travou aqui (é uma limitação conhecida do Safari/iPhone). Manda 3-5 fotos da execução em vez do vídeo — funciona melhor.' }];
       setMessages(finalMsgs); save('chat_ui', finalMsgs);
     }
   };
@@ -990,6 +1094,7 @@ function App() {
               <div style={{ margin: '22px 0 0' }}>
                 {[
                   'Manda a foto do prato. Eu digo o que tem ali dentro e lanço no seu extrato.',
+                  'Preguiça de digitar? Grava o áudio, me conta o que comeu, que eu escuto e lanço.',
                   'Geladeira vazia? Fotografa. Eu monto receita com o que você tem.',
                   'Dúvida na execução de um exercício? Manda as fotos que eu aponto o que ajustar.',
                   'Calculo sua meta de kcal e água em cima do seu objetivo — e recalculo quando você treina.',
@@ -1037,29 +1142,27 @@ function App() {
               </Field>
             )}
 
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <Field label="Peso">
                 <input placeholder="kg" inputMode="decimal" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} style={inputStyle} />
               </Field>
               <Field label="Altura">
                 <input placeholder="cm" inputMode="numeric" value={form.height} onChange={e => setForm({...form, height: e.target.value})} style={inputStyle} />
               </Field>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
               <Field label="Idade">
                 <input placeholder="anos" inputMode="numeric" value={form.age} onChange={e => setForm({...form, age: e.target.value})} style={inputStyle} />
               </Field>
-              <Field label="Sexo">
-                <select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}>
-                  <option value="F">Feminino</option>
-                  <option value="M">Masculino</option>
-                </select>
-              </Field>
             </div>
 
+            <Field label="Sexo">
+              <select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={selectStyle}>
+                <option value="F">Feminino</option>
+                <option value="M">Masculino</option>
+              </select>
+            </Field>
+
             <Field label="Objetivo">
-              <select value={form.goal} onChange={e => setForm({...form, goal: e.target.value})} style={inputStyle}>
+              <select value={form.goal} onChange={e => setForm({...form, goal: e.target.value})} style={selectStyle}>
                 <option value="emagrecer">Emagrecer</option>
                 <option value="manter">Manter o peso</option>
                 <option value="ganhar">Ganhar massa</option>
@@ -1067,7 +1170,7 @@ function App() {
             </Field>
 
             <Field label="Nível de atividade">
-              <select value={form.activityLevel} onChange={e => setForm({...form, activityLevel: e.target.value})} style={inputStyle}>
+              <select value={form.activityLevel} onChange={e => setForm({...form, activityLevel: e.target.value})} style={selectStyle}>
                 <option value="sedentario">Sedentário — pouco ou nenhum exercício</option>
                 <option value="leve">Leve — exercício algumas vezes na semana</option>
                 <option value="moderado">Moderado — exercício quase todos os dias</option>
@@ -1076,7 +1179,7 @@ function App() {
             </Field>
 
             <Field label="Treino">
-              <select value={form.trains} onChange={e => setForm({...form, trains: e.target.value})} style={inputStyle}>
+              <select value={form.trains} onChange={e => setForm({...form, trains: e.target.value})} style={selectStyle}>
                 <option value="sim">Já treino</option>
                 <option value="nao">Ainda não treino</option>
               </select>
@@ -1085,7 +1188,7 @@ function App() {
             {form.trains === 'sim' && (
               <React.Fragment>
                 <Field label="Tipo de treino">
-                  <select value={form.workoutType} onChange={e => setForm({...form, workoutType: e.target.value})} style={inputStyle}>
+                  <select value={form.workoutType} onChange={e => setForm({...form, workoutType: e.target.value})} style={selectStyle}>
                     {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>{w.label}</option>)}
                   </select>
                 </Field>
@@ -1157,7 +1260,7 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
               <div>
                 <p className="display" style={{ fontSize: 21, color: C.text, margin: 0, lineHeight: 1 }}>{dateCap}</p>
-                <p style={{ fontSize: 13, color: C.dim, margin: '6px 0 0' }}>Bom dia, {profile.name.split(' ')[0]}.</p>
+                <p style={{ fontSize: 13, color: C.dim, margin: '6px 0 0' }}>{greetingForNow()}, {profile.name.split(' ')[0]}.</p>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0, paddingLeft: 12 }}>
                 <p className="display" style={{ fontSize: 24, color: C.emerald, margin: 0, lineHeight: 1 }}>{streak}</p>
@@ -1248,28 +1351,6 @@ function App() {
               </div>
             )}
 
-            {/* Lançamento manual */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <input
-                type="number"
-                inputMode="numeric"
-                placeholder="Lançar kcal na mão"
-                value={mealKcalInput}
-                onChange={e => setMealKcalInput(e.target.value)}
-                style={{ ...inputStyle, padding: '11px 13px', fontSize: 13 }}
-              />
-              <button
-                onClick={() => {
-                  const add = parseInt(mealKcalInput) || 0;
-                  if (add > 0) addLedgerEntry({ label: mealLabelForNow(), kcal: -add, source: 'manual' });
-                  setMealKcalInput('');
-                }}
-                className="display"
-                style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '11px 18px', fontSize: 14, flexShrink: 0 }}
-              >
-                Lançar
-              </button>
-            </div>
 
             {/* Água */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '28px 0 10px' }}>
@@ -1286,12 +1367,16 @@ function App() {
                 <div key={i} style={{ flex: 1, height: 6, background: i < waterFilled ? C.emerald : 'rgba(255,255,255,.13)' }} />
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {[[250, 'copo'], [500, 'garrafa']].map(([ml, nome]) => (
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[250, 500, 700, 1000].map(ml => (
                 <button key={ml} onClick={() => updateDaily({ waterMl: waterMl + ml })}
                   className="mono-label"
-                  style={{ flex: 1, background: 'transparent', border: `1px solid ${C.border}`, color: C.text, padding: '12px 0', fontSize: 10 }}>
-                  + {nome} {ml} ml
+                  style={{
+                    flex: '1 1 0', minWidth: 0, background: 'transparent',
+                    border: `1px solid ${C.border}`, color: C.text,
+                    padding: '13px 0', fontSize: 10, letterSpacing: '.08em',
+                  }}>
+                  +{ml >= 1000 ? `${ml / 1000}L` : `${ml}ml`}
                 </button>
               ))}
             </div>
@@ -1386,7 +1471,14 @@ function App() {
             <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Perfil</p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 13, margin: '14px 0 22px' }}>
-              {profile.picture && <img src={profile.picture} style={{ width: 46, height: 46, borderRadius: 23, flexShrink: 0 }} />}
+              <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
+              <button onClick={() => avatarInputRef.current.click()}
+                style={{ position: 'relative', width: 54, height: 54, flexShrink: 0, padding: 0, border: `1px solid ${C.border}`, background: C.card, overflow: 'hidden' }}>
+                {profile.picture
+                  ? <img src={profile.picture} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  : <span className="display" style={{ fontSize: 20, color: C.emerald }}>{(profile.name || '?').charAt(0)}</span>}
+                <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: C.emerald, color: C.onYellow, fontSize: 7.5, fontWeight: 700, letterSpacing: '.1em', padding: '2px 0' }}>TROCAR</span>
+              </button>
               <div style={{ minWidth: 0 }}>
                 <p className="display" style={{ fontSize: 22, color: C.text, margin: 0, lineHeight: 1.05 }}>{profile.name}</p>
                 {profile.email && <p style={{ fontSize: 11.5, color: C.dim, margin: '4px 0 0', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</p>}
@@ -1498,7 +1590,12 @@ function App() {
             <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {messages.map(m => (
                 <div key={m.id} style={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start' }}>
-                  {m.image ? (
+                  {m.audio ? (
+                    <div style={{ maxWidth: '84%', background: C.cardAlt, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
+                      <span style={{ fontSize: 15 }}>🎙️</span>
+                      <span className="mono-label" style={{ color: C.text }}>{m.displayText || 'Áudio enviado'}</span>
+                    </div>
+                  ) : m.image ? (
                     <div style={{ maxWidth: '84%', border: `1px solid ${C.border}`, background: C.card }}>
                       <img src={m.image} style={{ display: 'block', width: '100%', maxHeight: 240, objectFit: 'cover' }} />
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', borderTop: `1px solid ${C.border}` }}>
@@ -1528,33 +1625,54 @@ function App() {
             <div style={{ borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
               <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhoto} />
               <input ref={execPhotosRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleExecPhotos} />
-              <input ref={videoInputRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={handleVideo} />
               <div style={{ display: 'flex' }}>
                 {[
                   ['Foto', () => fileInputRef.current.click()],
                   ['Várias fotos', () => execPhotosRef.current.click()],
-                  ['Vídeo', () => videoInputRef.current.click()],
                 ].map(([label, fn], i) => (
-                  <button key={label} onClick={fn} disabled={busy}
+                  <button key={label} onClick={fn} disabled={busy || recording}
                     className="display"
                     style={{
                       flex: 1, background: 'transparent', border: 'none',
-                      borderRight: i < 2 ? `1px solid ${C.border}` : 'none',
+                      borderRight: i < 1 ? `1px solid ${C.border}` : 'none',
                       borderBottom: `1px solid ${C.border}`,
                       color: C.emerald, padding: '12px 0', fontSize: 13, letterSpacing: '.06em',
-                      opacity: busy ? .4 : 1,
+                      opacity: (busy || recording) ? .4 : 1,
                     }}>{label}</button>
                 ))}
               </div>
-              <div style={{ display: 'flex', padding: 12, gap: 10 }}>
-                <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-                  placeholder="Fala aí, sem enrolar..." disabled={busy}
-                  style={{ ...inputStyle, padding: '12px 14px' }} />
-                <button onClick={send} disabled={busy} className="display"
-                  style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '12px 20px', fontSize: 14, letterSpacing: '.06em', opacity: busy ? .5 : 1, flexShrink: 0 }}>
-                  Enviar
-                </button>
-              </div>
+              {recording ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12 }}>
+                  <span style={{ width: 10, height: 10, background: C.red, borderRadius: 5, flexShrink: 0, animation: 'pulse 1s infinite' }} />
+                  <span className="display" style={{ fontSize: 20, color: C.text, flexShrink: 0 }}>
+                    {String(Math.floor(recSecs / 60)).padStart(2, '0')}:{String(recSecs % 60).padStart(2, '0')}
+                  </span>
+                  <span className="mono-label" style={{ color: C.dim, flex: 1, minWidth: 0 }}>gravando…</span>
+                  <button onClick={cancelRecording} className="mono-label"
+                    style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.dim, padding: '11px 14px', fontSize: 10, flexShrink: 0 }}>
+                    Cancelar
+                  </button>
+                  <button onClick={stopRecording} className="display"
+                    style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '11px 18px', fontSize: 14, letterSpacing: '.06em', flexShrink: 0 }}>
+                    Enviar
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', padding: 12, gap: 8 }}>
+                  <button onClick={startRecording} disabled={busy}
+                    title="Gravar áudio"
+                    style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.emerald, padding: '12px 14px', fontSize: 16, lineHeight: 1, flexShrink: 0, opacity: busy ? .4 : 1 }}>
+                    🎙️
+                  </button>
+                  <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
+                    placeholder="Fala aí, sem enrolar..." disabled={busy}
+                    style={{ ...inputStyle, padding: '12px 14px' }} />
+                  <button onClick={send} disabled={busy} className="display"
+                    style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '12px 18px', fontSize: 14, letterSpacing: '.06em', opacity: busy ? .5 : 1, flexShrink: 0 }}>
+                    Enviar
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1640,6 +1758,14 @@ function App() {
     </Phone>
   );
 }
+
+const selectStyle = {
+  background: '#151513', border: '1px solid rgba(255,255,255,.13)', borderRadius: 0,
+  padding: '13px 32px 13px 14px', color: '#F5F4F0', fontSize: 14, width: '100%',
+  outline: 'none', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+  backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23F0C21F'/></svg>\")",
+  backgroundRepeat: 'no-repeat', backgroundPosition: 'right 13px center',
+};
 
 const inputStyle = { background: '#151513', border: '1px solid rgba(255,255,255,.13)', borderRadius: 0, padding: '13px 14px', color: '#F5F4F0', fontSize: 14, flex: 1, minWidth: 0, outline: 'none' };
 

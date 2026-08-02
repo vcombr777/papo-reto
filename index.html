@@ -118,6 +118,7 @@ function syncNotificationPrefs(profile, waterGoalMl) {
     body: JSON.stringify({
       user_id: profile.id, name: profile.name,
       trains: !!profile.trains, workout_time: profile.workoutTime || null, workout_type: profile.workoutType || null,
+      workout_time_flexible: !!profile.flexTime,
       water_goal_ml: waterGoalMl,
     }),
   }).catch(() => {});
@@ -532,6 +533,16 @@ function load(key, fallback) {
 }
 function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 
+// Rótulo amarelo em cima do campo — deixa o formulário legível sem poluir o placeholder
+function Field({ label, children }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <p className="mono-label" style={{ color: '#F0C21F', margin: '0 0 6px' }}>{label}</p>
+      {children}
+    </div>
+  );
+}
+
 function Phone({ children }) {
   return (
     <div className="app-outer">
@@ -544,7 +555,7 @@ function Phone({ children }) {
 
 function App() {
   const [profile, setProfile] = useState(() => load('profile', null));
-  const [form, setForm] = useState({ name: '', weight: '', height: '', age: '', sex: 'F', goal: 'emagrecer', activityLevel: 'leve', trains: 'sim', workoutTime: '', workoutType: 'musculacao' });
+  const [form, setForm] = useState({ name: '', weight: '', height: '', age: '', sex: 'F', goal: 'emagrecer', activityLevel: 'leve', trains: 'sim', workoutTime: '', workoutType: 'musculacao', flexTime: false });
   const [tab, setTab] = useState('home');
   const [daily, setDaily] = useState(() => load(`daily:${todayKey()}`, { waterMl: 0, sleepHours: null }));
   const [containerMl, setContainerMl] = useState(() => load('container_ml', 200));
@@ -571,6 +582,10 @@ function App() {
   const googleBtnRef = useRef(null);
   const [googleProfile, setGoogleProfile] = useState(null);
   const [onboardStep, setOnboardStep] = useState('auth'); // 'auth' | 'welcome' | 'form'
+  const [authMode, setAuthMode] = useState('entrar');     // 'entrar' | 'criar'
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPass, setAuthPass] = useState('');
+  const [authError, setAuthError] = useState('');
   const googleReady = !GOOGLE_CLIENT_ID.startsWith('COLE_AQUI');
 
   useEffect(() => {
@@ -621,9 +636,36 @@ function App() {
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy, tab]);
 
+  // Login por e-mail/senha. NESTA FASE DE TESTE a conta vive só neste aparelho —
+  // antes de cobrar, isso precisa migrar pro Supabase Auth (senha real, recuperação,
+  // mesma conta em vários aparelhos). Ver nota no README.
+  const handleEmailAuth = () => {
+    const email = authEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) { setAuthError('Coloca um e-mail válido.'); return; }
+    if (authPass.length < 6) { setAuthError('A senha precisa de pelo menos 6 caracteres.'); return; }
+
+    const accounts = load('accounts', {});
+    if (authMode === 'criar') {
+      if (accounts[email]) { setAuthError('Esse e-mail já tem conta. Toca em "Entrar".'); return; }
+      accounts[email] = { pass: authPass, id: 'em_' + (crypto.randomUUID ? crypto.randomUUID() : Date.now()) };
+      save('accounts', accounts);
+      save('current_account', email);
+      setAuthError('');
+      setForm(f => ({ ...f, name: '' }));
+      setOnboardStep('welcome');
+    } else {
+      const acc = accounts[email];
+      if (!acc) { setAuthError('Não achei conta com esse e-mail. Cria uma em "Criar conta".'); return; }
+      if (acc.pass !== authPass) { setAuthError('Senha errada. Tenta de novo.'); return; }
+      save('current_account', email);
+      setAuthError('');
+      setOnboardStep('welcome');
+    }
+  };
+
   const resetProfile = () => {
     if (!window.confirm('Apagar seu perfil e começar o cadastro de novo?')) return;
-    ['profile', 'chat_ui', 'chat_api', 'streak', 'container_ml', 'notif_water', 'notif_meal'].forEach(k => localStorage.removeItem(k));
+    ['profile', 'chat_ui', 'chat_api', 'streak', 'container_ml', 'notif_water', 'notif_meal', 'current_account'].forEach(k => localStorage.removeItem(k));
     window.location.reload();
   };
 
@@ -662,12 +704,18 @@ function App() {
 
   const completeOnboarding = () => {
     if (!form.name.trim()) return;
-    const id = googleProfile ? googleProfile.sub : (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+    const accEmail = load('current_account', null);
+    const accounts = load('accounts', {});
+    const id = googleProfile
+      ? googleProfile.sub
+      : (accEmail && accounts[accEmail] ? accounts[accEmail].id
+        : (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`));
     const p = {
       id, name: form.name.trim(), weight: form.weight, height: form.height, age: form.age, sex: form.sex,
       goal: form.goal, activityLevel: form.activityLevel,
-      trains: form.trains === 'sim', workoutTime: form.trains === 'sim' ? form.workoutTime : '', workoutType: form.trains === 'sim' ? form.workoutType : '',
-      email: googleProfile ? googleProfile.email : undefined,
+      trains: form.trains === 'sim', workoutTime: form.trains === 'sim' && !form.flexTime ? form.workoutTime : '', workoutType: form.trains === 'sim' ? form.workoutType : '',
+      flexTime: form.trains === 'sim' && form.flexTime,
+      email: googleProfile ? googleProfile.email : (accEmail || undefined),
       picture: googleProfile ? googleProfile.picture : undefined,
     };
     save('profile', p);
@@ -836,25 +884,63 @@ function App() {
           {onboardStep === 'auth' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Papo Reto</p>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <h1 className="display" style={{ fontSize: 44, color: C.text, margin: '0 0 18px', lineHeight: .95 }}>
+
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingTop: 20 }}>
+                <h1 className="display" style={{ fontSize: 40, color: C.text, margin: '0 0 14px', lineHeight: .95 }}>
                   Chega de<br /><span style={{ color: C.emerald }}>enrolação</span>.
                 </h1>
-                <p style={{ fontSize: 14.5, color: C.dim, lineHeight: 1.6, margin: '0 0 30px', maxWidth: 300 }}>
+                <p style={{ fontSize: 14, color: C.dim, lineHeight: 1.55, margin: '0 0 26px' }}>
                   Sem dieta milagrosa. Sem app te dando parabéns por beber água. Você registra, eu analiso, a gente ajusta.
                 </p>
-                {googleReady ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12 }}>
-                    <div ref={googleBtnRef}></div>
-                    <p className="mono-label" style={{ color: C.dim, margin: 0 }}>Entre com o Google pra começar</p>
-                  </div>
-                ) : (
-                  <button onClick={() => setOnboardStep('welcome')} className="display"
-                    style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '17px', fontSize: 17, letterSpacing: '.06em' }}>
-                    Vamos começar
+
+                <div style={{ display: 'flex', marginBottom: 18 }}>
+                  {[['entrar', 'Entrar'], ['criar', 'Criar conta']].map(([id, label]) => (
+                    <button key={id} onClick={() => { setAuthMode(id); setAuthError(''); }}
+                      className="display"
+                      style={{
+                        flex: 1, background: 'transparent', border: 'none',
+                        borderBottom: `2px solid ${authMode === id ? C.emerald : C.border}`,
+                        color: authMode === id ? C.emerald : C.dim,
+                        padding: '11px 0', fontSize: 14, letterSpacing: '.06em',
+                      }}>{label}</button>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <input type="email" inputMode="email" autoComplete="email" placeholder="Seu e-mail"
+                    value={authEmail} onChange={e => setAuthEmail(e.target.value)} style={inputStyle} />
+                  <input type="password" autoComplete={authMode === 'criar' ? 'new-password' : 'current-password'}
+                    placeholder="Sua senha" value={authPass} onChange={e => setAuthPass(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleEmailAuth()} style={inputStyle} />
+
+                  {authError && (
+                    <p style={{ fontSize: 12, color: C.emerald, margin: 0, lineHeight: 1.45 }}>{authError}</p>
+                  )}
+
+                  <button onClick={handleEmailAuth} className="display"
+                    style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '16px', fontSize: 16, letterSpacing: '.06em', marginTop: 2 }}>
+                    {authMode === 'criar' ? 'Criar minha conta' : 'Entrar'}
                   </button>
+                </div>
+
+                {googleReady && (
+                  <React.Fragment>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '22px 0 16px' }}>
+                      <div style={{ flex: 1, height: 1, background: C.border }} />
+                      <span className="mono-label" style={{ color: C.dim }}>ou</span>
+                      <div style={{ flex: 1, height: 1, background: C.border }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      <div ref={googleBtnRef}></div>
+                    </div>
+                  </React.Fragment>
                 )}
               </div>
+
+              <p style={{ fontSize: 10.5, color: C.dim, lineHeight: 1.5, margin: '20px 0 0' }}>
+                Ao continuar você confirma ter 18 anos ou mais e concorda que o Papo Reto é orientação
+                de estilo de vida, não prescrição médica.
+              </p>
             </div>
           )}
 
@@ -875,15 +961,18 @@ function App() {
                 Sou sua mentora — não sou médica, nutricionista nem personal. Sou a voz que lembra do combinado quando ninguém está olhando.
               </p>
 
-              <div style={{ margin: '24px 0 0' }}>
+              <div style={{ margin: '22px 0 0' }}>
                 {[
-                  'Manda a foto do prato. Eu digo o que tem ali dentro.',
-                  'Treinou? Seu saldo do dia sobe na hora.',
+                  'Manda a foto do prato. Eu digo o que tem ali dentro e lanço no seu extrato.',
+                  'Geladeira vazia? Fotografa. Eu monto receita com o que você tem.',
+                  'Dúvida na execução de um exercício? Manda as fotos que eu aponto o que ajustar.',
+                  'Calculo sua meta de kcal e água em cima do seu objetivo — e recalculo quando você treina.',
+                  'Te cutuco na hora certa: beber água, registrar refeição, hora do treino.',
                   'Sumiu três dias? Eu vou perguntar por quê.',
                 ].map((t, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 14, padding: '14px 0', borderTop: `1px solid ${C.border}` }}>
+                  <div key={i} style={{ display: 'flex', gap: 13, padding: '11px 0', borderTop: `1px solid ${C.border}` }}>
                     <span className="mono-label" style={{ color: C.emerald, flexShrink: 0, paddingTop: 2 }}>0{i + 1}</span>
-                    <span style={{ fontSize: 14, color: C.text, lineHeight: 1.45 }}>{t}</span>
+                    <span style={{ fontSize: 13.5, color: C.text, lineHeight: 1.45 }}>{t}</span>
                   </div>
                 ))}
               </div>
@@ -901,12 +990,14 @@ function App() {
           )}
 
           {onboardStep === 'form' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Último passo</p>
-            <h1 className="display" style={{ fontSize: 30, color: C.text, margin: '2px 0 12px', lineHeight: 1 }}>Seus números</h1>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Último passo</p>
+              <h1 className="display" style={{ fontSize: 30, color: C.text, margin: '2px 0 0', lineHeight: 1 }}>Seus números</h1>
+            </div>
 
             {googleProfile && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 11, border: `1px solid ${C.border}`, padding: 11, marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 11, border: `1px solid ${C.border}`, padding: 11 }}>
                 <img src={googleProfile.picture} style={{ width: 34, height: 34, borderRadius: 17 }} />
                 <div style={{ minWidth: 0 }}>
                   <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>{googleProfile.name}</p>
@@ -915,47 +1006,90 @@ function App() {
               </div>
             )}
             {!googleProfile && (
-              <input placeholder="Seu nome" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={inputStyle} />
+              <Field label="Nome">
+                <input placeholder="Como você quer ser chamado" value={form.name} onChange={e => setForm({...form, name: e.target.value})} style={inputStyle} />
+              </Field>
             )}
+
             <div style={{ display: 'flex', gap: 10 }}>
-              <input placeholder="Peso (kg)" inputMode="numeric" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} style={inputStyle} />
-              <input placeholder="Altura (cm)" inputMode="numeric" value={form.height} onChange={e => setForm({...form, height: e.target.value})} style={inputStyle} />
+              <Field label="Peso">
+                <input placeholder="kg" inputMode="decimal" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} style={inputStyle} />
+              </Field>
+              <Field label="Altura">
+                <input placeholder="cm" inputMode="numeric" value={form.height} onChange={e => setForm({...form, height: e.target.value})} style={inputStyle} />
+              </Field>
             </div>
+
             <div style={{ display: 'flex', gap: 10 }}>
-              <input placeholder="Idade" inputMode="numeric" value={form.age} onChange={e => setForm({...form, age: e.target.value})} style={inputStyle} />
-              <select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}>
-                <option value="F">Feminino</option>
-                <option value="M">Masculino</option>
+              <Field label="Idade">
+                <input placeholder="anos" inputMode="numeric" value={form.age} onChange={e => setForm({...form, age: e.target.value})} style={inputStyle} />
+              </Field>
+              <Field label="Sexo">
+                <select value={form.sex} onChange={e => setForm({...form, sex: e.target.value})} style={inputStyle}>
+                  <option value="F">Feminino</option>
+                  <option value="M">Masculino</option>
+                </select>
+              </Field>
+            </div>
+
+            <Field label="Objetivo">
+              <select value={form.goal} onChange={e => setForm({...form, goal: e.target.value})} style={inputStyle}>
+                <option value="emagrecer">Emagrecer</option>
+                <option value="manter">Manter o peso</option>
+                <option value="ganhar">Ganhar massa</option>
               </select>
-            </div>
-            <select value={form.goal} onChange={e => setForm({...form, goal: e.target.value})} style={inputStyle}>
-              <option value="emagrecer">Meu objetivo: queimar gordura</option>
-              <option value="manter">Meu objetivo: manter o peso</option>
-              <option value="ganhar">Meu objetivo: ganhar massa</option>
-            </select>
-            <select value={form.activityLevel} onChange={e => setForm({...form, activityLevel: e.target.value})} style={inputStyle}>
-              <option value="sedentario">Atividade: sedentário</option>
-              <option value="leve">Atividade: leve (1-3x/semana)</option>
-              <option value="moderado">Atividade: moderado (3-5x/semana)</option>
-              <option value="intenso">Atividade: intenso (6-7x/semana)</option>
-            </select>
-            <select value={form.trains} onChange={e => setForm({...form, trains: e.target.value})} style={inputStyle}>
-              <option value="sim">Costumo treinar, sim</option>
-              <option value="nao">Não treino ainda</option>
-            </select>
+            </Field>
+
+            <Field label="Nível de atividade">
+              <select value={form.activityLevel} onChange={e => setForm({...form, activityLevel: e.target.value})} style={inputStyle}>
+                <option value="sedentario">Sedentário — pouco ou nenhum exercício</option>
+                <option value="leve">Leve — exercício algumas vezes na semana</option>
+                <option value="moderado">Moderado — exercício quase todos os dias</option>
+                <option value="intenso">Intenso — exercício diário ou pesado</option>
+              </select>
+            </Field>
+
+            <Field label="Treino">
+              <select value={form.trains} onChange={e => setForm({...form, trains: e.target.value})} style={inputStyle}>
+                <option value="sim">Já treino</option>
+                <option value="nao">Ainda não treino</option>
+              </select>
+            </Field>
+
             {form.trains === 'sim' && (
               <React.Fragment>
-                <select value={form.workoutType} onChange={e => setForm({...form, workoutType: e.target.value})} style={inputStyle}>
-                  {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>Treino: {w.label}</option>)}
-                </select>
-                <div>
-                  <p className="mono-label" style={{ color: C.dim, margin: '0 0 6px' }}>Horário que costuma treinar</p>
-                  <input type="time" value={form.workoutTime} onChange={e => setForm({...form, workoutTime: e.target.value})} style={inputStyle} />
-                </div>
+                <Field label="Tipo de treino">
+                  <select value={form.workoutType} onChange={e => setForm({...form, workoutType: e.target.value})} style={inputStyle}>
+                    {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>{w.label}</option>)}
+                  </select>
+                </Field>
+
+                <Field label="Horário que costuma treinar">
+                  <input type="time" value={form.workoutTime} disabled={form.flexTime}
+                    onChange={e => setForm({...form, workoutTime: e.target.value})}
+                    style={{ ...inputStyle, opacity: form.flexTime ? .4 : 1 }} />
+                  <button
+                    onClick={() => setForm({ ...form, flexTime: !form.flexTime, workoutTime: !form.flexTime ? '' : form.workoutTime })}
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, background: 'none', border: 'none', padding: '10px 0 0', width: '100%', textAlign: 'left' }}>
+                    <span style={{
+                      width: 17, height: 17, flexShrink: 0,
+                      border: `1px solid ${form.flexTime ? C.emerald : C.border}`,
+                      background: form.flexTime ? C.emerald : 'transparent',
+                      color: C.onYellow, fontSize: 12, lineHeight: '15px', textAlign: 'center', fontWeight: 700,
+                    }}>{form.flexTime ? '✓' : ''}</span>
+                    <span style={{ fontSize: 13, color: form.flexTime ? C.text : C.dim }}>Não tenho horário fixo</span>
+                  </button>
+                  {form.flexTime && (
+                    <p style={{ fontSize: 11.5, color: C.dim, margin: '8px 0 0', lineHeight: 1.5 }}>
+                      Sem horário fixo eu te cutuco de 3 em 3 horas perguntando se o treino já saiu.
+                    </p>
+                  )}
+                </Field>
               </React.Fragment>
             )}
+
             <button onClick={completeOnboarding} className="display"
-              style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '17px', fontSize: 17, letterSpacing: '.06em', marginTop: 8 }}>
+              style={{ background: C.emerald, color: C.onYellow, border: 'none', padding: '17px', fontSize: 17, letterSpacing: '.06em', marginTop: 6 }}>
               Entendi. Vamos.
             </button>
           </div>

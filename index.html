@@ -1416,14 +1416,14 @@ function App() {
                     Zero minutos hoje. Vinte minutos ainda contam.
                   </p>
                 )}
-                <div style={{ marginTop: 'auto', display: 'flex', gap: 4 }}>
+                <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <select value={workoutTypeInput} onChange={e => setWorkoutTypeInput(e.target.value)}
-                    style={{ ...inputStyle, padding: '7px 6px', borderRadius: 0 }}>
+                    style={{ ...selectStyle, padding: '7px 26px 7px 6px', backgroundPosition: 'right 8px center' }}>
                     {Object.entries(WORKOUT_TYPES).map(([key, w]) => <option key={key} value={key}>{w.label}</option>)}
                   </select>
-                  <input type="number" inputMode="numeric" placeholder="min" value={workoutMinutes}
+                  <input type="number" inputMode="numeric" placeholder="minutos" value={workoutMinutes}
                     onChange={e => setWorkoutMinutes(e.target.value)}
-                    style={{ ...inputStyle, padding: '7px 6px', borderRadius: 0, flex: '0 0 56px' }} />
+                    style={{ ...inputStyle, padding: '7px 6px', borderRadius: 0 }} />
                 </div>
                 <button
                   onClick={() => {

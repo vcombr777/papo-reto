@@ -533,6 +533,32 @@ function load(key, fallback) {
 }
 function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 
+// Marca "Placa PR": placa amarela com o canto inferior direito chanfrado.
+// Mesma construção do ícone do app, então a marca fica consistente dentro e fora.
+const PLATE_CLIP = 'polygon(0 0, 100% 0, 100% 68%, 68% 100%, 0 100%)';
+
+function Logo({ size = 34, withWordmark = true, wordSize }) {
+  const ws = wordSize || size * 0.62;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: size * 0.28 }}>
+      <div style={{
+        width: size, height: size, background: '#F0C21F', clipPath: PLATE_CLIP,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>
+        <span className="display" style={{
+          fontSize: size * 0.5, color: '#0B0B0B', lineHeight: 1,
+          letterSpacing: '-0.01em', transform: 'translate(-3%, -5%)',
+        }}>PR</span>
+      </div>
+      {withWordmark && (
+        <span className="display" style={{ fontSize: ws, color: '#F5F4F0', lineHeight: .9, letterSpacing: '.01em' }}>
+          Papo Reto
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Rótulo amarelo em cima do campo — deixa o formulário legível sem poluir o placeholder
 function Field({ label, children }) {
   return (
@@ -883,7 +909,7 @@ function App() {
 
           {onboardStep === 'auth' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <p className="mono-label" style={{ color: C.emerald, margin: 0 }}>Papo Reto</p>
+              <Logo size={38} wordSize={26} />
 
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingTop: 20 }}>
                 <h1 className="display" style={{ fontSize: 40, color: C.text, margin: '0 0 14px', lineHeight: .95 }}>
@@ -1126,7 +1152,8 @@ function App() {
           return (
           <div style={{ height: '100%', overflowY: 'auto', padding: '18px 20px 20px' }}>
 
-            {/* Cabeçalho: data, saudação e sequência */}
+            {/* Cabeçalho: marca, data, saudação e sequência */}
+            <div style={{ marginBottom: 14 }}><Logo size={26} wordSize={17} /></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
               <div>
                 <p className="display" style={{ fontSize: 21, color: C.text, margin: 0, lineHeight: 1 }}>{dateCap}</p>

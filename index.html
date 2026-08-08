@@ -142,6 +142,7 @@ async function fetchCloudProfile(userId) {
       id: r.user_id, name: r.name, email: r.email, weight: r.weight, height: r.height,
       age: r.age, sex: r.sex, goal: r.goal, activityLevel: r.activity_level,
       trains: r.trains, workoutTime: r.workout_time, workoutType: r.workout_type, flexTime: r.flex_time,
+      createdAt: r.created_at,
     };
   } catch (e) { return null; }
 }
@@ -254,6 +255,9 @@ function buildProfileSummary(profile, daily) {
   if (!profile) return '';
   const cal = computeCalorieBreakdown(profile);
   const waterGoal = computeWaterGoalMl(profile.weight);
+  const diasDeConta = profile.createdAt
+    ? Math.floor((Date.now() - new Date(profile.createdAt).getTime()) / 86400000)
+    : null;
 
   const perfil = [
     `Nome: ${profile.name}`,
@@ -277,6 +281,13 @@ function buildProfileSummary(profile, daily) {
   ].filter(Boolean).join(', ');
 
   const blocos = [`PERFIL: ${perfil}`, `HOJE: ${hoje}`];
+  if (diasDeConta !== null) {
+    blocos.push(
+      diasDeConta >= 15
+        ? `CONTA CRIADA HÁ ${diasDeConta} DIAS — já passou dos 15 dias. Se ainda não fez isso nessa conversa, aproveite um momento natural pra perguntar como ela está sentindo os resultados até agora e pedir o peso atualizado (o peso no perfil hoje é de quando ela se cadastrou, pode estar desatualizado). Quando ela informar um peso novo, feche a resposta com a etiqueta [[PESO:XXX]] (só o número, em kg).`
+        : `Conta criada há ${diasDeConta} dia(s).`
+    );
+  }
 
   // Histórico dos últimos dias: deixa a DONA lembrar o que foi treinado e comido
   const hist = [];
@@ -832,6 +843,7 @@ function App() {
       flexTime: form.trains === 'sim' && form.flexTime,
       email: googleProfile ? googleProfile.email : (accEmail || undefined),
       picture: googleProfile ? googleProfile.picture : undefined,
+      createdAt: new Date().toISOString(),
     };
     save('profile', p);
     setProfile(p);
@@ -974,9 +986,11 @@ function App() {
 
       // Captura automática: se a DONA etiquetou uma estimativa de calorias, soma sozinho no painel
       const kcalMatch = rawReply.match(/\[\[KCAL:(\d+)\]\]/);
+      const pesoMatch = rawReply.match(/\[\[PESO:(\d+(?:[.,]\d+)?)\]\]/);
       let reply = rawReply
         .replace(/\[\[NOTA:[^\]]+\]\]/g, '')
         .replace(/\s*\[\[KCAL:\d+\]\]\s*/g, '')
+        .replace(/\s*\[\[PESO:[\d.,]+\]\]\s*/g, '')
         .trim();
       if (kcalMatch) {
         const kcal = parseInt(kcalMatch[1], 10);
@@ -984,6 +998,14 @@ function App() {
           addLedgerEntry({ label: mealLabelForNow(), kcal: -kcal, source: 'foto' });
           reply += `\n\n**+${kcal} kcal** lançadas no seu extrato.`;
         }
+      }
+      if (pesoMatch) {
+        const novoPeso = pesoMatch[1].replace(',', '.');
+        const p = { ...profile, weight: novoPeso };
+        save('profile', p);
+        setProfile(p);
+        syncFullProfile(p);
+        reply += `\n\n**Peso atualizado pra ${novoPeso}kg** — sua meta de calorias já foi recalculada.`;
       }
 
       const imageParts = (images || []).map(img => ({ inline_data: { mime_type: img.mimeType, data: img.data } }));

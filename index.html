@@ -96,7 +96,7 @@ function logEvent(userId, userName, eventType, payload) {
       'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify({ user_id: userId, user_name: userName, event_type: eventType, payload }),
-  }).catch(() => {});
+  }).catch((e) => console.error('[sync] falhou:', e.message));
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -104,6 +104,46 @@ function urlBase64ToUint8Array(base64String) {
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+function syncFullProfile(p) {
+  if (SUPABASE_ANON_KEY.startsWith('COLE_AQUI') || !p) return;
+  fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Prefer': 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({
+      user_id: p.id, name: p.name, email: p.email || null,
+      weight: p.weight, height: p.height, age: p.age, sex: p.sex,
+      goal: p.goal, activity_level: p.activityLevel,
+      trains: !!p.trains, workout_time: p.workoutTime || null, workout_type: p.workoutType || null,
+      flex_time: !!p.flexTime,
+    }),
+  }).catch((e) => console.error('[sync] falhou:', e.message));
+}
+
+// Busca o perfil salvo na nuvem — usado quando o celular apagou os dados locais
+// (comum no iOS depois de dias sem abrir o app) mas a pessoa ainda tem a mesma
+// conta Google. Retorna null se não achar nada.
+async function fetchCloudProfile(userId) {
+  if (SUPABASE_ANON_KEY.startsWith('COLE_AQUI') || !userId) return null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?user_id=eq.${userId}&select=*`, {
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+    });
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length) return null;
+    const r = rows[0];
+    return {
+      id: r.user_id, name: r.name, email: r.email, weight: r.weight, height: r.height,
+      age: r.age, sex: r.sex, goal: r.goal, activityLevel: r.activity_level,
+      trains: r.trains, workoutTime: r.workout_time, workoutType: r.workout_type, flexTime: r.flex_time,
+    };
+  } catch (e) { return null; }
 }
 
 function syncNotificationPrefs(profile, waterGoalMl) {
@@ -122,7 +162,7 @@ function syncNotificationPrefs(profile, waterGoalMl) {
       workout_time_flexible: !!profile.flexTime,
       water_goal_ml: waterGoalMl,
     }),
-  }).catch(() => {});
+  }).catch((e) => console.error('[sync] falhou:', e.message));
 }
 
 function syncDailyWater(userId, waterMl) {
@@ -136,7 +176,7 @@ function syncDailyWater(userId, waterMl) {
       'Prefer': 'resolution=merge-duplicates',
     },
     body: JSON.stringify({ user_id: userId, date: todayKey(), water_ml: waterMl }),
-  }).catch(() => {});
+  }).catch((e) => console.error('[sync] falhou:', e.message));
 }
 
 async function subscribeToPush(userId) {
@@ -162,7 +202,7 @@ async function subscribeToPush(userId) {
       'Prefer': 'resolution=merge-duplicates',
     },
     body: JSON.stringify({ user_id: userId, endpoint: subJson.endpoint, p256dh: subJson.keys.p256dh, auth: subJson.keys.auth }),
-  }).catch(() => {});
+  }).catch((e) => console.error('[sync] falhou:', e.message));
   return { ok: true };
 }
 
@@ -637,11 +677,20 @@ function App() {
   useEffect(() => {
     if (profile || !googleReady) return;
     let cancelled = false;
-    const handleGoogleResponse = (resp) => {
+    const handleGoogleResponse = async (resp) => {
       try {
         const payload = JSON.parse(atob(resp.credential.split('.')[1]));
         setGoogleProfile({ sub: payload.sub, name: payload.name, email: payload.email, picture: payload.picture });
         setForm((f) => ({ ...f, name: payload.name }));
+
+        // Já usou esse Google antes? Restaura o perfil da nuvem em vez de pedir tudo de novo.
+        const cloud = await fetchCloudProfile(payload.sub);
+        if (cloud) {
+          const restored = { ...cloud, id: payload.sub, email: payload.email, picture: payload.picture };
+          save('profile', restored);
+          setProfile(restored);
+          return;
+        }
         setOnboardStep('welcome');
       } catch (e) {}
     };
@@ -677,7 +726,15 @@ function App() {
     navigator.serviceWorker.ready
       .then((reg) => reg.pushManager.getSubscription())
       .then((sub) => { if (sub) setNotifStatus('ok'); })
-      .catch(() => {});
+      .catch((e) => console.error('[sync] falhou:', e.message));
+  }, [profile]);
+
+  // Blindagem: garante que a linha de preferências existe no Supabase toda vez que
+  // o app abre, não só na criação do perfil — se algo falhar silenciosamente uma
+  // vez (já aconteceu), a próxima abertura do app se autocorrige.
+  useEffect(() => {
+    if (!profile) return;
+    syncNotificationPrefs(profile, computeWaterGoalMl(profile.weight));
   }, [profile]);
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, busy, tab]);
@@ -746,7 +803,7 @@ function App() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
       body: JSON.stringify({ water_reminders: next }),
-    }).catch(() => {});
+    }).catch((e) => console.error('[sync] falhou:', e.message));
   };
 
   const toggleNotifMeal = () => {
@@ -757,7 +814,7 @@ function App() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
       body: JSON.stringify({ meal_reminders: next }),
-    }).catch(() => {});
+    }).catch((e) => console.error('[sync] falhou:', e.message));
   };
 
   const completeOnboarding = () => {
@@ -780,6 +837,7 @@ function App() {
     setProfile(p);
     logEvent(p.id, p.name, 'perfil_criado', { weight: p.weight, height: p.height, age: p.age, sex: p.sex, goal: p.goal, activityLevel: p.activityLevel, trains: p.trains, viaGoogle: !!googleProfile });
     syncNotificationPrefs(p, computeWaterGoalMl(p.weight));
+    syncFullProfile(p);
     const abertura = [{ id: 1, from: 'dona', text: buildFirstMessage(p) }];
     setMessages(abertura); save('chat_ui', abertura);
   };
